@@ -235,3 +235,38 @@ test('体检：评论不算进「说话」这一栏（评论另有八股比例�
   assert.equal(r.speech.total, 1)
   assert.equal(r.speech.anchored, 0)
 })
+
+// 1.0.10：认识人那几个数。它们只回答「那条链路今天有没有真在跑」，
+// 所以全是 0 的时候整段都不给——界面上不排一排零当装饰。
+
+test('体检：一条 who 都没有时，「认识人」这一段不出现在结果里', () => {
+  const r = examine([said('我喜欢安静的地方', 3)])
+  assert.equal(r.people, undefined)
+})
+
+test('体检：认识人按 who 与场次数，主人不混进「另外见过的人」', () => {
+  const events = [
+    said('这人嘴上硬，心里软。', 5, { who: { id: 'owner', name: '' } }),
+    said('他记性比我想的好。', 4, { who: { id: 'owner', name: '' } }),
+    said('老王总是半夜回话。', 3, { who: { id: 'bili:1', name: '老王' }, scene: 'group' }),
+    said('小周看事情很稳。', 2, { who: { id: 'bili:2', name: '小周' } }),
+    {
+      id: 'v1', v: 1, ts: at(2), day: 1, stage: 1, type: 'voice', source: 'system',
+      text: '这个游戏好玩吗', scene: 'group', who: { id: 'bili:3', name: '阿蓝' },
+    },
+  ]
+  const r = examine(events)
+  assert.equal(r.people.ownerJudged, 2)
+  assert.equal(r.people.met, 3) // 老王 / 小周 / 阿蓝
+  assert.equal(r.people.judged, 2) // 老王 / 小周 写过判断，阿蓝只是说过话
+  assert.equal(r.people.herWords, 1) // 群房里她说的一条
+  assert.equal(r.people.othersWords, 1) // 群房里别人说的一条
+})
+
+test('体检：只有主人名下判断时，另见人数是 0 而不是 1', () => {
+  const r = examine([said('他比我想的安静。', 2, { who: { id: 'owner', name: '' } })])
+  assert.equal(r.people.ownerJudged, 1)
+  assert.equal(r.people.met, 0)
+  assert.equal(r.people.judged, 0)
+})
+
