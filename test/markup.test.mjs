@@ -6,8 +6,9 @@
  *   ② 标记旁边还有真话：留真话，只去掉标记；
  *   ③ 正常正文里出现 `<` `>` 的，一个字符都不动；
  *   ④ 流被截断、标记没闭合的，从第一个残标切到行尾。
- *   ⑤ 整段被 `<parameter name="…">…</parameter></invoke>` 包住的参数壳（issue #166）：
- *      剥壳留话；正文中间提到、或者壳没收尾的，一个字符都不动。
+ *   ⑤ 漏进正文的参数壳（issue #166 / 2026-11-22 跟进）：任意位置认
+ *      `<parameter name="…">…</parameter>`，只留 `text` 那段的字；正文中间提到、
+ *      或者壳没收尾的，一个字符都不动。
  */
 
 import { test } from 'node:test'
@@ -111,13 +112,59 @@ test('参数壳：整段被包住时剥壳留话（issue #166）', () => {
   assert.equal(stripToolMarkup('<parameter name="text"></parameter></invoke>'), '')
 })
 
-test('参数壳：只在整段被包住时才动手', () => {
+test('参数壳：认不出的形状一律不动（正文里提到 / 收尾没闭合）', () => {
   const prose = '他说 <parameter name="text"> 是模板里的占位符。'
   assert.equal(stripToolMarkup(prose), prose)
   const half = '<parameter name="text">这半截没收尾'
   assert.equal(stripToolMarkup(half), half)
   // `<div>` 和 `a < b` 那条底线不受影响
   assert.equal(stripToolMarkup('<div>不是标记</div>'), '<div>不是标记</div>')
+})
+
+/**
+ * issue #166 跟进（@mxc881031 的 A–G 七形状，2026-11-22）。
+ * 上一版只认 A：开收尾都锚在整段上，B/C/D 不认；`name="` 写死双引号，E 不认；
+ * 开口允许多吃一个 `<parameter>`，G 会把参数名剥进正文。
+ */
+test('参数壳：壳出现在正文任意位置都认（B / C / D）', () => {
+  // B：正文在前，壳在末尾
+  assert.equal(
+    stripToolShell('好，我记下了。\n\n<parameter name="text">明天九点。</parameter>\n</invoke>'),
+    '好，我记下了。\n\n明天九点。',
+  )
+  // C：壳夹在正文中间
+  assert.equal(
+    stripToolMarkup('我先说一句。<parameter name="text">明天九点。</parameter>后面还有话。'),
+    '我先说一句。明天九点。后面还有话。',
+  )
+  // D：收尾链后面多一个句号——那是壳的尾巴，不是她又说了一句
+  assert.equal(stripToolShell('<parameter name="text">明天九点。</parameter></invoke>。'), '明天九点。')
+})
+
+test('参数壳：单引号 / 不带引号的 name 也认（E）', () => {
+  assert.equal(stripToolShell("<parameter name='text'>明天九点。</parameter>"), '明天九点。')
+  assert.equal(stripToolShell('<parameter name=text>明天九点。</parameter>'), '明天九点。')
+})
+
+test('参数壳：多参数只留 text，别的参数不剥进正文（G）', () => {
+  const call = '<invoke name="her_note"><parameter name="action">add</parameter>'
+    + '<parameter name="text">明天九点。</parameter></invoke>'
+  assert.equal(stripToolShell(call), '明天九点。')
+  assert.equal(stripToolMarkup(call), '明天九点。')
+  // 只有参数、没有 text：那一步她没有说话
+  assert.equal(stripToolMarkup('<invoke name="her_note"><parameter name="action">add</parameter></invoke>'), '')
+  // 但正文照常留下
+  assert.equal(
+    stripToolMarkup('好。<parameter name="action">add</parameter>'),
+    '好。',
+  )
+})
+
+test('参数壳：DSML 残标开头的半截壳，收尾不留残尾（F）', () => {
+  const raw = '好。<｜｜DSML｜｜ parameter name="text">明天九点。</parameter></invoke>'
+  assert.equal(stripToolMarkup(raw), '好。明天九点。')
+  // 原来会留 `</parameter></invoke>`：DSML 分支只删了开标签那半截
+  assert.equal(stripToolMarkup(raw).includes('</'), false)
 })
 
 test('assistantText：参数壳不会被记成她的话（issue #166）', () => {

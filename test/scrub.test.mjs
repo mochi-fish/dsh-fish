@@ -58,6 +58,27 @@ test('只有标记的一步返回空串（意思是这一步她没有正文）',
   assert.equal(stripLeakedToolSyntax(''), '')
 })
 
+test('参数壳出现在正文任意位置都认（issue #166 跟进）', () => {
+  // 上一版只认「整段被包住」，这几种 hasLeakedToolSyntax 判 false、静默漏出去
+  const shapes = [
+    ['好，我记下了。\n\n<parameter name="text">明天九点。</parameter>\n</invoke>', '好，我记下了。\n\n明天九点。'],
+    ['我先说一句。<parameter name="text">明天九点。</parameter>后面还有话。', '我先说一句。明天九点。后面还有话。'],
+    ['<parameter name="text">明天九点。</parameter></invoke>。', '明天九点。'],
+    ["<parameter name='text'>明天九点。</parameter>", '明天九点。'],
+    [
+      '<invoke name="her_note"><parameter name="action">add</parameter>'
+      + '<parameter name="text">明天九点。</parameter></invoke>',
+      '明天九点。',
+    ],
+  ]
+  for (const [raw, want] of shapes) {
+    assert.equal(hasLeakedToolSyntax(raw), true, `该认出来：${raw}`)
+    assert.equal(stripLeakedToolSyntax(raw), want, `该洗干净：${raw}`)
+  }
+  // 参数名不该被剥进正文（G 的旧症状）
+  assert.equal(stripLeakedToolSyntax(shapes[4][0]).includes('add'), false)
+})
+
 test('参数壳整段包住时剥壳留话（issue #166）', () => {
   const raw = '<parameter name="text">我把窗关上了。</parameter>\n</invoke>'
   assert.equal(stripLeakedToolSyntax(raw), '我把窗关上了。')
