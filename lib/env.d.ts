@@ -43,6 +43,28 @@ declare var process: {
   stderr: { write(chunk: string | Uint8Array): boolean }
 }
 
+/**
+ * Node 的定时器句柄。
+ *
+ * `jsconfig.json` 借 DOM lib 拿 `fetch`/`URL` 这些全局，可 DOM 把 `setTimeout`/`setInterval`
+ * 的返回值写成 `number`；在 Node 里它是个对象，插件到处靠 `.unref?.()` 不拖住进程退出。
+ * 不补这几条，`heartbeat.unref?.()` 这类写法在 CI 里报 TS2339（本地若上级目录恰好有
+ * `@types/node` 会被自动收进来、看不出问题——所以 jsconfig 同时写死了 `types: []`）。
+ * 下面的重载与 DOM 那条合并，无 `window.` 前缀的调用解析到这里。
+ */
+interface NodeTimeout {
+  ref(): this
+  unref(): this
+  hasRef(): boolean
+  refresh(): this
+  [Symbol.toPrimitive](): number
+}
+
+declare function setTimeout<TArgs extends any[]>(callback: (...args: TArgs) => void, ms?: number, ...args: TArgs): NodeTimeout
+declare function setInterval<TArgs extends any[]>(callback: (...args: TArgs) => void, ms?: number, ...args: TArgs): NodeTimeout
+declare function clearTimeout(timeout: NodeTimeout | string | number | undefined | null): void
+declare function clearInterval(timeout: NodeTimeout | string | number | undefined | null): void
+
 declare module 'node:fs' {
   const fs: {
     existsSync(p: string): boolean
