@@ -2,8 +2,8 @@
  * appoint.test.mjs —— 通用预约簿的锁定测试（2026-11-08）
  *
  * 守七件事：
- *   1. 约的是「哪天 + 哪件事」，日子只收 1–60 天后，字数有上限；
- *   2. 同时最多两条未完成的——多了就不是记着一件事，是排课表；
+ *   1. 约的是「哪天 + 哪件事」，日子收今天到 60 天后，字数有上限；
+ *   2. 按天有配额：同一天带时刻最多 8 条、只写日子最多 5 条；挨得太近的点会挡；
  *   3. 到期/过期都能叫醒她，但同一条只提一次；过期不替她抹掉；
  *   4. 做到、取消、改期都由她自己收；取消必须说一句为什么；
  *   5. 不进 events.jsonl：预约是操作层，不是成长记录；
@@ -19,7 +19,8 @@ import { join } from 'node:path'
 import {
   APPOINT_FILE,
   APPOINT_MAX,
-  APPOINT_OPEN_MAX,
+  APPOINT_DAY_TIMED_MAX,
+  APPOINT_DAY_DAY_MAX,
   APPOINT_TEXT_MAX,
   appointPath,
   isDay,
@@ -68,9 +69,14 @@ test('约一条：日子、事情、状态都落盘', async () => {
   })
 })
 
-test('日子与字数都在写入口挡：今天、太远、假日期、太短、太长', async () => {
+test('日子与字数都在写入口挡：过去、太远、假日期、太短、太长；今天可以约，带时刻要留半小时', async () => {
   await withRoot(async (root) => {
-    assert.equal((await makeAppointment(root, { what: '明天再说', due: '2026-11-08', now: NOW })).ok, false)
+    assert.equal((await makeAppointment(root, { what: '昨天的事', due: '2026-11-07', now: NOW })).ok, false)
+    assert.equal((await makeAppointment(root, { what: '今天只写日子', due: '2026-11-08', now: NOW })).ok, true)
+    assert.equal((await makeAppointment(root, { what: '今天下午三点', due: '2026-11-08', time: '15:00', now: NOW })).ok, true)
+    const soon = await makeAppointment(root, { what: '二十分钟后', due: '2026-11-08', time: '10:20', now: NOW })
+    assert.equal(soon.ok, false)
+    assert.match(soon.note, /半小时/)
     assert.equal((await makeAppointment(root, { what: '明天再说', due: '2026-11-09', now: NOW })).ok, true)
     assert.equal((await makeAppointment(root, { what: '六十天后', due: addDays('2026-11-08', 61), now: NOW })).ok, false)
     assert.equal((await makeAppointment(root, { what: '假日期', due: '2026-02-30', now: NOW })).ok, false)
@@ -83,18 +89,43 @@ test('日子与字数都在写入口挡：今天、太远、假日期、太短�
   })
 })
 
-test('同时最多两条未完成的；同一天同一件事不重复记', async () => {
+test('按天配额：同一天带时刻最多 8 条、只写日子最多 5 条；关掉一条就腾出位子', async () => {
   await withRoot(async (root) => {
-    const a = await makeAppointment(root, { what: '第一件事', due: '2026-11-11', now: NOW })
-    const b = await makeAppointment(root, { what: '第二件事', due: '2026-11-12', now: NOW })
-    assert.equal(a.ok, true)
-    assert.equal(b.ok, true)
-    const c = await makeAppointment(root, { what: '第三件事', due: '2026-11-13', now: NOW })
-    assert.equal(c.ok, false, `上限 ${APPOINT_OPEN_MAX} 条`)
-    const again = await makeAppointment(root, { what: '第一件事', due: '2026-11-11', now: NOW })
+    const day = '2026-11-11'
+    const first = await makeAppointment(root, { what: '第一件事', due: day, time: '08:00', now: NOW })
+    assert.equal(first.ok, true)
+    const again = await makeAppointment(root, { what: '第一件事', due: day, time: '08:00', now: NOW })
     assert.equal(again.ok, true)
-    assert.equal(again.id, a.id, '同一件事再约一次是幂等的')
-    assert.equal((await readAppointments(root)).length, 2)
+    assert.equal(again.id, first.id, '同一件事再约一次是幂等的')
+    for (let i = 1; i < APPOINT_DAY_TIMED_MAX; i += 1) {
+      const r = await makeAppointment(root, { what: `第${i}件带时刻的事`, due: day, time: `${String(8 + i).padStart(2, '0')}:00`, now: NOW })
+      assert.equal(r.ok, true, `第 ${i + 1} 条`)
+    }
+    const full = await makeAppointment(root, { what: '第九件带时刻的事', due: day, time: '17:00', now: NOW })
+    assert.equal(full.ok, false)
+    assert.match(full.note, /排满/)
+    assert.equal((await closeAppointment(root, { id: first.id, action: 'done', now: NOW })).ok, true)
+    assert.equal((await makeAppointment(root, { what: '空出来的一件', due: day, time: '17:00', now: NOW })).ok, true)
+
+    const plainDay = '2026-11-12'
+    for (let i = 0; i < APPOINT_DAY_DAY_MAX; i += 1) {
+      const r = await makeAppointment(root, { what: `第${i}件只写日子的事`, due: plainDay, now: NOW })
+      assert.equal(r.ok, true, `只写日子的第 ${i + 1} 条`)
+    }
+    const plainFull = await makeAppointment(root, { what: '第六件只写日子的事', due: plainDay, now: NOW })
+    assert.equal(plainFull.ok, false)
+    assert.match(plainFull.note, /排满/)
+  })
+})
+
+test('两个点儿挨得太近会被挡：十分钟内算太挤，错开就放行', async () => {
+  await withRoot(async (root) => {
+    const day = '2026-11-13'
+    assert.equal((await makeAppointment(root, { what: '上午的家长会', due: day, time: '09:00', now: NOW })).ok, true)
+    const close = await makeAppointment(root, { what: '紧接着的一件', due: day, time: '09:05', now: NOW })
+    assert.equal(close.ok, false)
+    assert.match(close.note, /太挤/)
+    assert.equal((await makeAppointment(root, { what: '隔开十分钟的一件', due: day, time: '09:10', now: NOW })).ok, true)
   })
 })
 
@@ -154,6 +185,24 @@ test('改期：同一件事换一天，提过的标记清掉，新日子会再�
     assert.equal(row.due, '2026-11-15')
     assert.equal(row.notifiedAt, null)
     assert.equal((await moveAppointment(root, { id: a.id, newDue: '2026-11-04', now: NOW + 4 * DAY })).ok, false)
+  })
+})
+
+test('改期也要过撞点与半小时准备：挪到挨着的点儿、或挪到今天太近，都挡', async () => {
+  await withRoot(async (root) => {
+    const day = '2026-11-18'
+    await makeAppointment(root, { what: '占住九点', due: day, time: '09:00', now: NOW })
+    const late = await makeAppointment(root, { what: '要挪到九点零五', due: '2026-11-19', time: '09:05', now: NOW })
+    assert.equal(late.ok, true)
+    const clash = await moveAppointment(root, { id: late.id, newDue: day, now: NOW })
+    assert.equal(clash.ok, false)
+    assert.match(clash.note, /太挤/)
+
+    const soon = await makeAppointment(root, { what: '要挪到今天太近的点', due: '2026-11-20', time: '09:30', now: NOW })
+    assert.equal(soon.ok, true)
+    const moved = await moveAppointment(root, { id: soon.id, newDue: '2026-11-08', now: NOW })
+    assert.equal(moved.ok, false)
+    assert.match(moved.note, /半小时/)
   })
 })
 

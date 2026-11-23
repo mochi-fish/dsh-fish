@@ -3,7 +3,7 @@
  *
  * 守七件事：
  *   1. 时刻只收 08:00 这种 24 小时制，算的是本地时刻，不是 UTC；
- *   2. 带时刻的约定今天不约（约到今天三点，那条提醒已经过了）；
+ *   2. 带时刻的约定今天也能约，但要留半小时准备（约到今天早上八点、现在十点，就晚了）；
  *   3. 没到点不算到期，过了点才算；同一天两个时刻各自叫各自的；
  *   4. 叫过就记下，别在剩下的十几分钟里反复叫她；
  *   5. 到点那段只写事件里真有的：他答应了 / 以后再说 / 还没答 / 没问过；
@@ -73,17 +73,25 @@ test('晚了多少分钟：没到点是 null，过了向下取整', () => {
   assert.equal(lateMinutesOf({ due: '2026-11-19' }, at(2026, 11, 20, 9, 0)), null)
 })
 
-test('带时刻的约定：今天不约、格式要写对、明天可以', async () => {
+test('带时刻的约定：今天要留半小时、格式要写对、明天随便约', async () => {
   await withRoot(async (root) => {
-    const today = await makeAppointment(root, { what: '说一声早安', due: '2026-11-08', time: '08:00', now: NOW })
-    assert.equal(today.ok, false)
-    assert.match(today.note, /明天/)
+    // 现在 10:00，约今天 08:00：已经过去，也来不及准备。
+    const past = await makeAppointment(root, { what: '说一声早安', due: '2026-11-08', time: '08:00', now: NOW })
+    assert.equal(past.ok, false)
+    assert.match(past.note, /半小时/)
+    // 现在 10:00，约今天 10:10：只差十分钟，来不及准备。
+    const soon = await makeAppointment(root, { what: '说一声早安', due: '2026-11-08', time: '10:10', now: NOW })
+    assert.equal(soon.ok, false)
+    assert.match(soon.note, /半小时/)
+    // 现在 10:00，约今天 23:00：留得出准备时间。
+    const later = await makeAppointment(root, { what: '说一声晚安', due: '2026-11-08', time: '23:00', now: NOW })
+    assert.equal(later.ok, true)
     const bad = await makeAppointment(root, { what: '说一声早安', due: '2026-11-09', time: '8:00', now: NOW })
     assert.equal(bad.ok, false)
     assert.match(bad.note, /08:00/)
     const ok = await makeAppointment(root, { what: '说一声早安', due: '2026-11-09', time: '08:00', now: NOW })
     assert.equal(ok.ok, true)
-    const [saved] = await readAppointments(root)
+    const saved = (await readAppointments(root)).find((a) => a.what === '说一声早安' && a.time === '08:00')
     assert.equal(saved.time, '08:00')
   })
 })

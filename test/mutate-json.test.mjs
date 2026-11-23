@@ -19,7 +19,7 @@ import { join } from 'node:path'
 
 import { mutateJson, readJson, writeAtomic, writeDaily, readDaily } from '../lib/store.js'
 import { addNote, closeNote, readNotes } from '../lib/note.js'
-import { makeAppointment, markNotified, moveAppointment, readAppointments, APPOINT_OPEN_MAX } from '../lib/appoint.js'
+import { makeAppointment, markNotified, moveAppointment, readAppointments, APPOINT_DAY_TIMED_MAX } from '../lib/appoint.js'
 import { addExchange, recentExchanges } from '../lib/talkmem.js'
 import { queueNote, takeNotes, deliverQueued } from '../lib/sessionnote.js'
 import { updateConfig, loadConfig } from '../lib/settings.js'
@@ -102,14 +102,14 @@ test('便条：一边划掉旧的一边记新的，两件事都在', async () =>
   })
 })
 
-test('约定：并发约两件，两件都在；并发约三件，上限照样算数', async () => {
+test('约定：并发约九条同一天的带时刻约定，按天配额照样算数（落八条）', async () => {
   await withRoot(async (root) => {
     const now = Date.parse('2026-11-12T04:00:00Z')
-    const res = await Promise.all([1, 2, 3].map((i) =>
-      makeAppointment(root, { what: `一起做第${i}件事`, due: `2026-11-2${i}`, now })))
-    assert.equal(res.filter((r) => r.ok).length, APPOINT_OPEN_MAX)
+    const res = await Promise.all([0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) =>
+      makeAppointment(root, { what: `一起做第${i}件事`, due: '2026-11-21', time: `${String(8 + i).padStart(2, '0')}:00`, now })))
+    assert.equal(res.filter((r) => r.ok).length, APPOINT_DAY_TIMED_MAX)
     const left = await readAppointments(root)
-    assert.equal(left.length, APPOINT_OPEN_MAX)
+    assert.equal(left.length, APPOINT_DAY_TIMED_MAX)
     assert.deepEqual(left.map((a) => a.id).sort(), res.filter((r) => r.ok).map((r) => r.id).sort())
   })
 })
