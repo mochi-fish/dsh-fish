@@ -15,7 +15,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { registerMake } from '../lib/make.js'
+import { registerMake, noteKeepVersions } from '../lib/make.js'
 import { readWorks, listWorks } from '../lib/works.js'
 
 async function withRoot(fn) {
@@ -170,19 +170,41 @@ test('写入口挡：没名字、空正文、翻不到旧东西、翻不到版�
   })
 })
 
-test('一天只起一件新的：第二件挡回去，第一件不受影响', async () => {
+test('一天最多几版也算新建：两件能留，第三件挡回去', async () => {
   await withRoot(async (root) => {
     const { get } = withTools(root)
     const make = get('her_make')
     const exec = { agent: { session: { id: 'session-abc' } } }
-    await make.execute({ title: '一件', text: '一稿。' }, exec)
-    const second = await make.execute({ title: '另一件', text: '一稿。' }, exec)
-    assert.equal(second.ok, false)
-    assert.match(second.note, /今天已经起过一件了/)
+    assert.equal((await make.execute({ title: '一件', text: '一稿。' }, exec)).ok, true)
+    assert.equal((await make.execute({ title: '另一件', text: '一稿。' }, exec)).ok, true)
+    const third = await make.execute({ title: '第三件', text: '一稿。' }, exec)
+    assert.equal(third.ok, false)
+    assert.match(third.note, /今天已经留下 2 版了/)
     const rows = await readWorks(root)
-    assert.equal(rows.items.length, 1)
-    assert.equal(rows.items[0].title, '一件')
+    assert.equal(rows.items.length, 2)
     assert.equal(rows.items[0].versions.length, 1)
     assert.ok(NOW > 0)
+  })
+})
+
+test('「只留最后一版」开关换了，两个工具的说明跟着换，不跟盘上打架', async () => {
+  await withRoot(async (root) => {
+    const { get } = withTools(root)
+    const make = get('her_make')
+    const work = get('her_work')
+
+    noteKeepVersions(true)
+    assert.match(make.description, /每一版都留着/)
+    assert.match(work.description, /想读某一版就再给 version/)
+    assert.ok(!String(make.description).includes('旧版不再保留'))
+
+    noteKeepVersions(false)
+    assert.match(make.description, /只留最后一版/)
+    assert.match(make.description, /旧版不再保留/)
+    assert.match(work.description, /不用给 version/)
+    assert.ok(!String(make.description).includes('每一版都留着'), '别一边说只留一版、一边许诺旧版还在')
+
+    noteKeepVersions(true)
+    assert.match(make.description, /每一版都留着/)
   })
 })

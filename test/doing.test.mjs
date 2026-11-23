@@ -117,6 +117,15 @@ test('同一件冷却三天', () => {
   assert.equal(other.ok, true)
 })
 
+test('同件冷却只看消耗类：同名但归类不是消耗的记录不算（2026-11-23 审计）', () => {
+  const now = Date.now()
+  // 同一个工具以前被归成产出、现在归成消耗：旧记录不该给它留下同件冷却。
+  const events = [did({ cls: 'produce', tool: 'novel_read', key: 'novel_read:三体', ts: now - DAY })]
+  const cfg = { proactive: { allowDoing: true, consumePerDay: 1, consumePerWeek: 0, toolClasses: { novel_read: 'consume' } } }
+  const v = checkDoing({ name: 'novel_read', args: { title: '三体' }, events, now, config: cfg })
+  assert.equal(v.ok, true, '只有消耗类的旧记录才该算「这件事前几天做过」')
+})
+
 test('周上限：滚动七天够数就拦，0 表示不限', () => {
   const now = Date.now()
   const three = [

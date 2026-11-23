@@ -5,7 +5,7 @@
  *   1. 留一件：正文落到 works/<id>/vN-标题.md，账里只有索引，读得回来；
  *   2. 同名再给一次就是第二版，第一版不覆盖（用户 m00130：反复改才真实）；
  *   3. 改版时换名字还是同一件，旧的那件还在；
- *   4. 硬上限：名字四十字、一版两千字、一天起一件新的、七天三件新的、一天两版、手上最多两件；
+ *   4. 硬上限：名字四十字、一版两千字、一天最多几版（可调，新建也算）、手上最多两件；
  *   5. 收尾/放下；放下必须说一句为什么；
  *   6. 读回正文不留痕：账里不记、不写事件、桌上不会因此多出一行；
  *   7. 桌上只摆一件事实：十四天内动过的、还没弄完的；
@@ -20,8 +20,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
-  WORK_NEW_PER_WEEK,
-  WORK_PER_DAY,
   WORK_TEXT_MAX,
   WORK_TITLE_MAX,
   WORK_VERSIONS_PER_DAY,
@@ -218,26 +216,115 @@ test('设成 1 就是当天只留一版：改一版也被拦', async () => {
   })
 })
 
-test('一天只起一件新的；七天三件到顶就停', async () => {
+test('只留最后一版：改版换掉上一版，旧文件删掉、账上只剩当前一行', async () => {
   await withRoot(async (root) => {
-    await makeWork(root, { title: '甲', text: '甲的正文。', now: day(0) })
-    const sameDay = await makeWork(root, { title: '乙', text: '乙的正文。', now: day(0) + 1000 })
+    const a = await makeWork(root, { title: '只留最后', text: '一。', now: NOW, versionsPerDay: 5, keepVersions: false })
+    assert.equal(a.ok, true)
+    assert.equal(a.version, 1)
+    const firstFile = String((await readWorks(root)).items[0].versions[0].file)
+    assert.ok((await readFile(join(root, firstFile), 'utf8')).includes('一。'))
+
+    const b = await makeWork(root, { title: '只留最后', text: '二。', now: NOW + 1000, versionsPerDay: 5, keepVersions: false })
+    assert.equal(b.ok, true)
+    assert.equal(b.version, 2)
+    const two = (await readWorks(root)).items[0]
+    assert.equal(two.versions.length, 1, '账上只留当前这一行')
+    assert.equal(two.versions[0].v, 2)
+    assert.equal(two.rev, 1, 'rev = 改过几次')
+    assert.deepEqual(two.revDays, ['2026-11-16', '2026-11-16'], 'revDays 一天一条，改两次就有两条')
+    await assert.rejects(() => readFile(join(root, firstFile), 'utf8'), '上一版的文件要真删掉')
+
+    const c = await makeWork(root, { title: '只留最后', text: '三。', now: NOW + 2000, versionsPerDay: 5, keepVersions: false })
+    assert.equal(c.ok, true)
+    assert.equal(c.version, 3)
+    const three = (await readWorks(root)).items[0]
+    assert.equal(three.versions.length, 1)
+    assert.equal(three.versions[0].v, 3)
+    assert.equal(three.rev, 2)
+    assert.equal(three.revDays.length, 3)
+
+    // 旧版号照实说不在了，不拿最后一版冒充。
+    const old = await readWorkText(root, { title: '只留最后', version: 1 })
+    assert.equal(old.ok, false)
+    assert.match(old.note, /只留现在这一版（第 3 版），旧版不再保留/)
+  })
+})
+
+test('只留最后一版：一天上限按 revDays 数，不会被「账上只剩一行」骗过去', async () => {
+  await withRoot(async (root) => {
+    assert.equal((await makeWork(root, { title: '还会数', text: '一。', now: NOW, versionsPerDay: 2, keepVersions: false })).ok, true)
+    assert.equal((await makeWork(root, { title: '还会数', text: '二。', now: NOW + 1000, versionsPerDay: 2, keepVersions: false })).ok, true)
+    const third = await makeWork(root, { title: '还会数', text: '三。', now: NOW + 2000, versionsPerDay: 2, keepVersions: false })
+    assert.equal(third.ok, false)
+    assert.match(third.note, /今天已经改过 2 版了/)
+  })
+})
+
+test('老账（每一版都留着）切到只留最后一版：旧版文件一起收掉，rev/revDays 读得出来', async () => {
+  await withRoot(async (root) => {
+    const a = await makeWork(root, { title: '老账', text: '一。', now: NOW })
+    assert.equal(a.ok, true)
+    assert.equal((await makeWork(root, { title: '老账', text: '二。', now: NOW + 1000 })).ok, true)
+    const before = (await readWorks(root)).items[0]
+    assert.equal(before.versions.length, 2)
+    const oldFiles = before.versions.map((v) => String(v.file))
+
+    const c = await makeWork(root, { title: '老账', text: '三。', now: day(1), keepVersions: false })
+    assert.equal(c.ok, true)
+    assert.equal(c.version, 3)
+    const after = (await readWorks(root)).items[0]
+    assert.equal(after.versions.length, 1)
+    assert.equal(after.versions[0].v, 3)
+    assert.equal(after.rev, 2)
+    assert.deepEqual(after.revDays, ['2026-11-16', '2026-11-16', '2026-11-17'])
+    for (const f of oldFiles) await assert.rejects(() => readFile(join(root, f), 'utf8'), '老账的旧版文件也要收掉')
+  })
+})
+
+test('开关从「只留最后一版」切回「每一版都留着」：版号不撞、上一版文件不被覆盖', async () => {
+  await withRoot(async (root) => {
+    assert.equal((await makeWork(root, { title: '来回切', text: '一。', now: NOW, versionsPerDay: 5, keepVersions: false })).ok, true)
+    assert.equal((await makeWork(root, { title: '来回切', text: '二。', now: NOW + 1000, versionsPerDay: 5, keepVersions: true })).ok, true)
+    const third = await makeWork(root, { title: '来回切', text: '三。', now: NOW + 2000, versionsPerDay: 5, keepVersions: true })
+    assert.equal(third.ok, true)
+    assert.equal(third.version, 3, '切回来之后版号接着长，不回头撞第二版')
+    const item = (await readWorks(root)).items[0]
+    assert.deepEqual(item.versions.map((v) => v.v), [1, 2, 3])
+    assert.equal(item.rev, 2, 'rev 每次写版都要跟上，不能停在只留最后一版时的 0')
+    assert.equal(item.revDays.length, 3)
+    const second = await readFile(join(root, item.versions.find((v) => v.v === 2).file), 'utf8')
+    assert.match(second, /二。/, '第二版的文件还是第二版，没被第三版覆盖')
+  })
+})
+
+test('切回「每一版都留着」之后，一天几版的账还算得对（上限不放水）', async () => {
+  await withRoot(async (root) => {
+    assert.equal((await makeWork(root, { title: '别放水', text: '一。', now: NOW, versionsPerDay: 2, keepVersions: false })).ok, true)
+    assert.equal((await makeWork(root, { title: '别放水', text: '二。', now: NOW + 1000, versionsPerDay: 2, keepVersions: true })).ok, true)
+    const third = await makeWork(root, { title: '别放水', text: '三。', now: NOW + 2000, versionsPerDay: 2, keepVersions: true })
+    assert.equal(third.ok, false, '同一天已经两版了')
+    assert.match(third.note, /今天已经改过 2 版了/)
+  })
+})
+
+test('按天的上限只剩「几版」：新建也计入，跨天重置（用户 m01616）', async () => {
+  await withRoot(async (root) => {
+    assert.equal((await makeWork(root, { title: '甲', text: '甲的正文。', now: day(0), versionsPerDay: 1 })).ok, true)
+    const sameDay = await makeWork(root, { title: '乙', text: '乙的正文。', now: day(0) + 1000, versionsPerDay: 1 })
     assert.equal(sameDay.ok, false)
-    assert.match(sameDay.note, /今天已经起过一件了/)
-    assert.equal(WORK_PER_DAY, 1)
-    assert.equal((await makeWork(root, { title: '乙', text: '乙的正文。', now: day(1) })).ok, true)
-    await closeWork(root, { title: '甲', state: 'done', now: day(1) })
-    await closeWork(root, { title: '乙', state: 'done', now: day(1) })
-    assert.equal((await makeWork(root, { title: '丙', text: '丙的正文。', now: day(2) })).ok, true)
-    await closeWork(root, { title: '丙', state: 'done', now: day(2) })
+    assert.match(sameDay.note, /今天已经留下 1 版了/)
 
-    const fourth = await makeWork(root, { title: '丁', text: '丁的正文。', now: day(3) })
-    assert.equal(fourth.ok, false)
-    assert.match(fourth.note, /这七天里起的东西够多了/)
-    assert.equal(WORK_NEW_PER_WEEK, 3)
+    // 跨天就重新算：昨天那一版不占今天的额度。
+    await closeWork(root, { title: '甲', state: 'done', now: day(0) + 2000 })
+    assert.equal((await makeWork(root, { title: '乙', text: '乙的正文。', now: day(1), versionsPerDay: 1 })).ok, true)
+    await closeWork(root, { title: '乙', state: 'done', now: day(1) + 1000 })
 
-    // 最早那件滑出七天之后，就能再起一件新的。
-    assert.equal((await makeWork(root, { title: '丁', text: '丁的正文。', now: day(8) })).ok, true)
+    // 调大之后同一天能多留；只要不超过上限就行。
+    assert.equal((await makeWork(root, { title: '丙', text: '丙的正文。', now: day(2), versionsPerDay: 2 })).ok, true)
+    assert.equal((await makeWork(root, { title: '丁', text: '丁的正文。', now: day(2) + 1000, versionsPerDay: 2 })).ok, true)
+    const third = await makeWork(root, { title: '戊', text: '戊的正文。', now: day(2) + 2000, versionsPerDay: 2 })
+    assert.equal(third.ok, false)
+    assert.match(third.note, /今天已经留下 2 版了/)
   })
 })
 
@@ -613,7 +700,7 @@ test('文件产物：名字里带 token / secret 的正常文件照收，不按�
       ['home/secret-santa.md', '# 抽签\n'],
       ['home/.gitignore', 'node_modules/\n'],
     ]
-    // 一周最多起三件（WORK_NEW_PER_WEEK = 3），第四件放到下一周。
+    // 一天最多几版（默认两版）也算新建：四天各一件，不撞按天的上限。
     const days = [0, 1, 2, 8]
     for (const [i, [name, body]] of cases.entries()) {
       await writeFile(join(root, ...name.split('/')), body)

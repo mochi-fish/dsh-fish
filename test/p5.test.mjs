@@ -386,6 +386,19 @@ test('/config 收得下「一天最多几版」（用户 m01320）', async () =>
     await route.handler(req2, res)
     assert.equal(status, 200)
     assert.equal(payload.config.works.versionsPerDay, 20)
+    assert.equal(payload.config.works.keepVersions, true, '默认每一版都留着')
+
+    // 同一个群组里的「只留最后一版」也要存得进去（用户 m01616）。
+    const body3 = JSON.stringify({ works: { keepVersions: false } })
+    const req3 = {
+      method: 'POST',
+      url: '/dsh-fish/config',
+      headers: { 'content-type': 'application/json' },
+      on: (ev, fn) => { if (ev === 'data') fn(Buffer.from(body3, 'utf8')); if (ev === 'end') fn() },
+    }
+    await route.handler(req3, res)
+    assert.equal(status, 200)
+    assert.equal(payload.config.works.keepVersions, false)
   } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }

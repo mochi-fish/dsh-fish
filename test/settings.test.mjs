@@ -59,6 +59,15 @@ test('一天最多几版：默认 2，夹在 1..20', () => {
   assert.equal(normalizeConfig({ works: { versionsPerDay: 'abc' } }).works.versionsPerDay, 2)
 })
 
+// 2026-11-23（issue #176 / 用户 m01616）：默认还留每一版；设 false 才只留最后一版。
+test('作品只留最后一版：默认 true，明确写 false 才是 false', () => {
+  assert.equal(normalizeConfig({}).works.keepVersions, true)
+  assert.equal(normalizeConfig({ works: { keepVersions: false } }).works.keepVersions, false)
+  assert.equal(normalizeConfig({ works: { keepVersions: true } }).works.keepVersions, true)
+  // 写坏了不崩，回默认「都留着」
+  assert.equal(normalizeConfig({ works: { keepVersions: 'no' } }).works.keepVersions, true)
+})
+
 test('非法时间窗回落到默认，不抛错', () => {
   assert.deepEqual(normalizeConfig({ window: ['25:00', 'abc'] }).window, DEFAULTS.window)
   assert.deepEqual(normalizeConfig({ window: ['09:00', '09:00'] }).window, DEFAULTS.window)
