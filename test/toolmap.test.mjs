@@ -71,6 +71,12 @@ test('第三层：参数不复述，留在工具自己的说明里', () => {
   for (const [name, brief] of [['NOTE_BRIEF', NOTE_BRIEF], ['ASK_BRIEF', ASK_BRIEF]]) {
     assert.doesNotMatch(brief, /offset|filter|action:\s*"list"/, `${name} 不该再把枚举和分页写一遍`)
   }
+  // 2026-11-23（用户 m00686）：这三句原来在身份文档里与工具说明近逐字重复——
+  // growth_commit 的「只能新增」与「不返回设定」（`lib/capture.js:64,87`）、
+  // bili_sub 的「填进 from」（`lib/sub.js:422`）。她一次调用会看见两遍，规则只留工具那份。
+  assert.doesNotMatch(TOOL_BRIEF, /只能新增/, 'growth_commit 的追加规则不该在这里再写一遍')
+  assert.doesNotMatch(TOOL_BRIEF, /不返回设定/, '状态说明在工具自己的说明里')
+  assert.doesNotMatch(TOOL_BRIEF, /填进 from/, '字幕怎么接着读是 bili_sub 的参数说明')
   // 但「怎么动手」这一句要留着：告诉她去哪儿看，别猜。
   assert.match(TOOL_BRIEF, /自己的说明里/, '要指路，不能只说「不知道就猜」')
 })
