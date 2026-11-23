@@ -21,7 +21,9 @@ import {
   homeStatus,
   ensureHomeDir,
   talkSessionId,
+  armHandoffFor,
 } from '../lib/home.js'
+import { addExchange } from '../lib/talkmem.js'
 import { writeSelfDoc, selfDocPath, selfDocStatus } from '../lib/selfdoc.js'
 import { appendEvent } from '../lib/store.js'
 import { paths } from '../lib/store.js'
@@ -679,5 +681,66 @@ test('同屋的会话全归档了：仍然报「被收起来了」，不硬造�
     assert.equal(r.ok, false)
     assert.equal(r.archived, true)
     assert.equal(created.length, 1, '一条都不该建')
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+// 2026-11-23（用户报的「崩溃回退不带交接页」）：宿主崩过之后，旧会话在工作区索引
+// 和宿主自己的会话列表里都查不到了，插件兜底新建一间——那也是一次搬家，新房间的
+// 第一句话该看到同一页交接，而不是「新开一间，之前说到哪儿全没了」。
+test('旧会话接不上了、兜底补建的新会话：也要留一页交接（崩溃回退，2026-11-23）', async () => {
+  const root = await tmpRoot()
+  try {
+    const { ctx, sessions, created, listed } = fakeCtx()
+    const a = await bootstrapHome(ctx, { root })
+    assert.equal(a.ok, true, a.why)
+
+    // 上一段对话留在盘上的话，交接页靠它拼
+    await addExchange(root, { me: '刚才说到哪儿了', her: '说到你要去睡了' })
+
+    // 模拟崩溃之后：索引与宿主列表都不认那条会话，宽限期也早过了
+    sessions.get(a.wsId).sessionIds = []
+    listed.length = 0
+    const home = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    home.createdAt = new Date(Date.now() - 60 * 60_000).toISOString()
+    await writeFile(join(root, 'home.json'), JSON.stringify(home, null, 2))
+
+    const fresh = await ensureTalkSession(ctx, { root, wsId: a.wsId })
+    assert.equal(fresh.ok, true, fresh.why)
+    assert.notEqual(fresh.sessionId, a.sessionId, '旧那条接不上，这次要补建一条')
+    assert.equal(created.length, 2)
+
+    const saved = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    assert.equal(saved.sessionId, fresh.sessionId)
+    assert.match(String(saved.carry ?? ''), /刚才说到哪儿了/, '旧房间的话要带进新房间的交接页')
+    assert.equal(saved.rotatedFrom, undefined, '不是轮换，别写轮换字段（压力统计会认错）')
+    assert.equal(saved.rotatedTo, undefined)
+    assert.equal(await armHandoffFor(root, fresh.sessionId), true, '第一句话一到，这页就该真的摆出来')
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+test('第一次开档 / 明说要重开：不摆交接页（那不是搬家）', async () => {
+  const root = await tmpRoot()
+  try {
+    const { ctx, sessions, listed } = fakeCtx()
+    const a = await bootstrapHome(ctx, { root })
+    assert.equal(a.ok, true, a.why)
+    await addExchange(root, { me: '第一间房里的悄悄话', her: '嗯' })
+
+    const first = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    assert.equal(first.carry, undefined, '第一次开档没有旧房间可交接')
+
+    // 「重新搭一间」是用户自己点的：旧房间还在，不该把话头摆进新房间
+    sessions.get(a.wsId).sessionIds = []
+    listed.length = 0
+    const old = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    old.createdAt = new Date(Date.now() - 60 * 60_000).toISOString()
+    await writeFile(join(root, 'home.json'), JSON.stringify(old, null, 2))
+
+    const again = await bootstrapHome(ctx, { root, force: true })
+    assert.equal(again.ok, true, again.why)
+    assert.notEqual(again.sessionId, a.sessionId)
+
+    const saved = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    assert.equal(saved.carry, undefined, 'force 重建不是搬家，不摆交接页')
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
 })
