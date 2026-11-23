@@ -55,13 +55,19 @@ function herAgent(sid, cwd, calls = [], guards = []) {
 }
 
 test('来信判据：群聊 / 群里的他 / 没有时区的 human 才算桥', () => {
-  assert.equal(isBridgeMessage('group', {}), true)
-  assert.equal(isBridgeMessage('group-owner', { clientTimeZone: 'Asia/Shanghai' }), true, '群里的他也算外面来的')
-  assert.equal(isBridgeMessage('human', {}), true, '桥 prompt 进来的话没有时区')
-  assert.equal(isBridgeMessage('human', { clientTimeZone: 'Asia/Shanghai' }), false, '本地客户端打的字有时区')
-  assert.equal(isBridgeMessage('plugin', {}), false, '插件自己的记账不算')
-  assert.equal(isBridgeMessage('unknown', {}), false)
-  assert.equal(isBridgeMessage('context', {}), false, '宿主上下文没有 source，不算')
+  assert.equal(isBridgeMessage('group', { kind: 'user' }), true)
+  assert.equal(isBridgeMessage('group-owner', { kind: 'user', clientTimeZone: 'Asia/Shanghai' }), true, '群里的他也算外面来的')
+  assert.equal(isBridgeMessage('human', { kind: 'user' }), true, '桥 prompt 进来的话没有时区')
+  assert.equal(isBridgeMessage('human', { kind: 'user', clientTimeZone: 'Asia/Shanghai' }), false, '本地客户端打的字有时区')
+  assert.equal(isBridgeMessage('plugin', { kind: 'user' }), false, '插件自己的记账不算')
+  assert.equal(isBridgeMessage('unknown', { kind: 'user' }), false)
+  assert.equal(isBridgeMessage('context', { kind: 'user' }), false, '宿主上下文没有 source，不算')
+  // 2026-11-23 对抗复核：宿主对空正文的 prompt 写 kind:'retry'，classify 会把它
+  // 当 human；他屋里那条普通会话点一次「重试」就会被认成她。kind 不是 user 的都不算。
+  assert.equal(isBridgeMessage('human', { kind: 'retry', rpcId: 'r-1' }), false, '宿主重试不是桥来信')
+  assert.equal(isBridgeMessage('group', { kind: 'retry', scene: 'group' }), false, '重试也不带场次')
+  assert.equal(isBridgeMessage('human', { kind: 'qq', rpcId: 'r-2' }), false, '自己起名的 kind 不建会话，不靠这里认')
+  assert.equal(isBridgeMessage('human', {}), false, '没有 kind 的老形状不认，宁可漏一轮')
 })
 
 test('登记只跑一次；两个家、两条会话互不串', () => {
@@ -147,7 +153,13 @@ test('桥接全链路：群里的话进来才认领，本地客户端的字不�
   ctx.emit('session/event', session, msg({ kind: 'user', clientTimeZone: 'Asia/Shanghai' }))
   assert.equal(claimed, 0, '他自己打的字永远等不到那封信之外的东西，不许认领')
 
-  ctx.emit('session/event', session, msg({ kind: 'qq', form: 'relay' }))
-  assert.equal(claimed, 1, '桥转进来的话没有时区，第一封到就认')
+  // 2026-11-23 对抗复核：宿主的 prompt() 在空正文时写 kind:'retry'，
+  // classifyMessage 会把它算成 human——这条要是能认领，他点一次「重试」，
+  // 他屋里这条普通会话就变成她了（1.0.8 修掉的误伤从后门回来）。
+  ctx.emit('session/event', session, msg({ kind: 'retry', rpcId: 'r-retry-1' }))
+  assert.equal(claimed, 0, '宿主重试不是外面来的信')
+
+  ctx.emit('session/event', session, msg({ kind: 'user', rpcId: 'r-bridge-1' }))
+  assert.equal(claimed, 1, '桥 prompt 进来的话没有时区但带 rpcId，第一封到就认')
   resetClaimWaiters()
 })
