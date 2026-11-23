@@ -752,3 +752,78 @@ test('同一件事拒绝了两次、第二次把话说长了：头一句认得�
   assert.equal(r[0].kind, 'refused')
   assert.equal(r[0].object, '看你推给我的那些视频，一看就到半夜，眼睛疼', '代表句取组里第一条的那件事')
 })
+
+// ---- 2026-11-23（外部报告：revise 让立场静默消失，修 A+B） ----
+// 报告里的形状：为压字数把五条立场各 revise 一次（verdict=refined，同一句话压短），
+// her_stance 从 6 条掉到 1 条，身份文档「我站哪边」898 字掉到 203 字，中间不报错。
+// 根因是三条叠加：mention 池不收 revise 句、refined 的旧句立刻退出在用名单、
+// 疤只跟代表句比。修法是把 refined 的旧句当影子带回来（不算第二条判断，只供背书），
+// 疤改成跟整组比。下面四条锁住这几种形状。
+
+test('改写只换措辞：旧句上的 mentions 继续算数（修 B）', () => {
+  const r = buildStances(model({
+    beliefs: [
+      belief('我不想把我的判断交给他拿去当测试题。', {
+        id: 'old', status: 'refined', mentions: 4, since: '2026-10-01T10:00:00Z',
+      }),
+      belief('我不做别人的测试题。', {
+        id: 'new', mentions: 1, verified: 1, refs: ['old'], since: '2026-10-20T10:00:00Z',
+      }),
+    ],
+  }))
+  assert.equal(r.length, 1, '压短之后措辞差得远，但旧句的背书还在，不该掉')
+  assert.equal(r[0].mentions, 5, '旧句 4 次 + 新句 1 次')
+  assert.deepEqual(r[0].members, ['new', 'old'], 'her_stance 明细要能追到旧说法')
+  assert.equal(r[0].text, '我不做别人的测试题。', '代表句仍是现在这一句')
+})
+
+test('改写只换措辞：旧句上的疤继续算数（修 A+B）', () => {
+  const r = buildStances(model({
+    beliefs: [
+      belief('我不想把我的判断交给他拿去当测试题。', {
+        id: 'old', status: 'refined', mentions: 1, since: '2026-10-01T10:00:00Z',
+      }),
+      belief('我不做别人的测试题。', {
+        id: 'new', mentions: 1, verified: 1, refs: ['old'], since: '2026-10-20T10:00:00Z',
+      }),
+    ],
+    // 疤的 quote 挂的是旧句原文；新句跟它只有 0.308，不修就背不上。
+    scars: [{ quote: '我不想把我的判断交给他拿去当测试题。', reaction: 'insist' }],
+  }))
+  assert.equal(r.length, 1)
+  assert.equal(r[0].scars, 1, '疤是「这件事上栽过一次」，不是「这一句话被顶回来过」')
+})
+
+test('refuted 的旧句不会借 refs 链回到清单', () => {
+  const r = buildStances(model({
+    beliefs: [
+      belief('我不想把我的判断交给他拿去当测试题。', {
+        id: 'old', status: 'refuted', mentions: 4, verified: 2, since: '2026-10-01T10:00:00Z',
+      }),
+      belief('我不做别人的测试题。', {
+        id: 'new', mentions: 1, refs: ['old'], since: '2026-10-20T10:00:00Z',
+      }),
+    ],
+  }))
+  assert.deepEqual(r, [], '真撤掉的那条不许回来')
+})
+
+test('改写两次：整条链的背书都算数，不只看上一句', () => {
+  const r = buildStances(model({
+    beliefs: [
+      belief('我不想把我的判断交给他拿去当测试题。', {
+        id: 'a', status: 'refined', mentions: 3, since: '2026-10-01T10:00:00Z',
+      }),
+      belief('我不想把判断给他当测试题。', {
+        id: 'b', status: 'refined', mentions: 1, refs: ['a'], since: '2026-10-10T10:00:00Z',
+      }),
+      belief('我不做别人的测试题。', {
+        id: 'c', mentions: 1, refs: ['b'], since: '2026-10-20T10:00:00Z',
+      }),
+    ],
+  }))
+  assert.equal(r.length, 1)
+  assert.equal(r[0].mentions, 5)
+  assert.deepEqual(r[0].members, ['c', 'b', 'a'])
+})
+

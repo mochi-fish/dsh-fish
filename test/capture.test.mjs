@@ -302,6 +302,55 @@ test('refs：去重、去空、截 6 条；回执里回一遍，事件里原样�
   })
 })
 
+// ---- 2026-11-23（外部报告：revise 让立场静默消失，修 D） ----
+// 以前改写一条判断只回「钉住了」，读起来是纯成功；实际上 refined 会把旧说法
+// 从在用名单里换下来。回执要把后果说清，让她自己知道这一步不是没有代价。
+test('revise refined：回执说这是换说法，不是改口（修 D）', async () => {
+  await withRoot(async (root) => {
+    const ctx = fakeCtx()
+    registerCapture(ctx, { root })
+    const tool = ctx.regs.get('growth_commit')
+    const first = await tool.execute({
+      type: 'utterance',
+      text: '我不想把我的判断交给他拿去当测试题。',
+    })
+    assert.equal(first.ok, true)
+    const out = await tool.execute({
+      type: 'revise',
+      verdict: 'refined',
+      refs: [first.id],
+      text: '我不做别人的测试题。',
+    })
+    assert.equal(out.ok, true)
+    assert.equal(out.revise, 'refined')
+    const blocks = tool.output.render({}, out)
+    assert.ok(blocks.some((b) => b.text.includes('换个说法，不是改口')))
+  })
+})
+
+test('revise refuted：回执说这句撤下来了（修 D）', async () => {
+  await withRoot(async (root) => {
+    const ctx = fakeCtx()
+    registerCapture(ctx, { root })
+    const tool = ctx.regs.get('growth_commit')
+    const first = await tool.execute({
+      type: 'utterance',
+      text: '这句我不认了。',
+    })
+    assert.equal(first.ok, true)
+    const out = await tool.execute({
+      type: 'revise',
+      verdict: 'refuted',
+      refs: [first.id],
+      text: '这句我不认了。',
+    })
+    assert.equal(out.ok, true)
+    assert.equal(out.revise, 'refuted')
+    const blocks = tool.output.render({}, out)
+    assert.ok(blocks.some((b) => b.text.includes('撤下来了')))
+  })
+})
+
 // ---- 2026-11-22 外部 issue：缺 type 时不再说「未知事件类型」 ----
 // 根因：我们的 defineTool 是恒等函数（见 lib/tool.js），parameters 里的 required
 // 在宿主那边不生效，缺字段的调用会一路走到 schema.js 的 validateEvent 才被拒。

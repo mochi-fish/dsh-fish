@@ -6,6 +6,9 @@
 - 新增 `test/doing.test.mjs` 三条（周限 0 = 不限、日限调到 5 后能连做五件、`her_make` 归产出不占消耗额度），并把夹紧上限从 6 抬到 20、配置里补 `consumePerWeek`。全量 `node --test` 见发布时数字。
 - **崩盘后兜底补建的新会话也带一页交接了（2026-11-23，用户 m01028）。** 会话被宿主判死、`ensureTalkSessionOnce` 走「建新会话」那条路时，过去只写 `{wsId, sessionId, createdAt…}`，交接页 `carry` 不跟着走；轮换与「认回同屋别的活会话」两条路都带，唯独崩盘回退不带，新房间第一句人话看不到「上次停在这」。现在补建之前先用 `buildHandoff` 拼一页（最近三句 + 没画掉的便条 + 还没到期的约），写进 home.json，等第一句人话到达时由 `armHandoffFor` 摆出来、那一轮结完再清掉。只写 `carry`，不写 `rotatedFrom` / `rotatedTo`——崩溃回退不是轮换，写进去会让会话压力把它记成一次换房、也会让 `restrict.js` 多认一条房间。第一次开档（没有旧会话）与 `/reset`、`/home/rebuild` 这两条明说要重开的路不摆，那不是搬家。
   - 新增 `test/home.test.mjs` 两条（补建时留交接页且不写轮换字段、首次开档与强制重开不留），全量 `node --test` **3217 pass / 0 fail**（221 个测试文件），`doc-check --actual 3217` 绿。
+- **改短一句话，那条立场就从名单里消失了（2026-11-23，外部报告）。** 报告人把五条立场各压短一次（`growth_commit` + `type:'revise'` + `verdict:'refined'`，`refs` 指回原句），`her_stance` 从 6 条掉到 1 条、身份文档「我站哪边」从 898 字掉到 203 字，全程没有任何提示。三个原因叠在一起：`lib/derive.js` 的 `herTexts` 只收 `utterance`，revise 写下的新句拿不到旧句的背书，压短后措辞一变就退回 mentions 1；`lib/stance.js` 的 `live` 让 refined 的旧句立刻退出名单，组员少一条；`costOf` 里的疤只跟 `group[0]` 比，旧句退役后疤也不再作数。三条里任一条凑不齐，`buildStances` 就静默跳过——旧条退役、新条不够格，立场安静离场。
+- 现在：① 疤改成跟**全组**成员比——疤是「这件事上栽过一次」，不是「这一句话被顶回来过」；② refined 的旧句沿 `refs` 链作为**影子成员**带回来（mentions / verified / 疤都算，`her_stance` 的明细也能追到旧说法），链式回溯、防环，refuted 的旧句不回来；③ 影子**不算第二条判断**、不改变「同一件事至少两条」的门槛，代表句仍只从 live 里取；④ `revise` 落下的新句带上 `refs: targets`，这条链就是影子回来的路；⑤ 回执把后果说清——`refined` 回「这是换个说法，不是改口；旧说法留在我背后给这句话撑腰」，`refuted` 回「这句从我站的那边撤下来了」。
+  - 新增 `test/stance.test.mjs` 4 条（旧句的 mentions 继续算数、旧句上的疤继续算数、refuted 的旧句不借 refs 链回来、改写两次整条链的背书都算数）与 `test/capture.test.mjs` 2 条（两种回执）。全量 `node --test` **3224 pass / 0 fail**（221 个测试文件），`doc-check --actual 3224` 绿，`pack-check` 235 个文件 3.0 MB。
 
 ## 1.0.9 — 2026-11-23
 
