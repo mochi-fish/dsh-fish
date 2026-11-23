@@ -140,3 +140,72 @@ test('找人：全名优先，也认名字里的几个字；不认路径', () =>
   assert.deepEqual(findPerson(people, '../etc/passwd'), [])
   assert.deepEqual(findPerson(people, ''), [])
 })
+
+// ---- 只有名字的人（桥只报了 speaker、没报 id）----
+// 跳过等于「接桥的人打开 her_people 一个外人都看不见」，所以按名字建人，但必须标出来。
+
+test('没有 id 的人也要出现，并如实标「同名可能不止一个人」', () => {
+  const people = peopleOf([ev({ id: 'e1', type: 'voice', ts: T1, text: '我叫张三。', who: { id: '', name: '张三' } })])
+  assert.equal(people.length, 1)
+  assert.equal(people[0].id, 'name:张三')
+  assert.equal(people[0].name, '张三')
+  assert.equal(people[0].nameOnly, true)
+  assert.match(renderPerson(people[0]), /这个名字对上的可能不止一个人/)
+})
+
+test('有 id 的张三和有名字的张三算两个人，不并', () => {
+  const people = peopleOf([
+    ev({ id: 'e1', type: 'voice', ts: T1, text: '在。', who: { id: 'bili:9', name: '张三' } }),
+    ev({ id: 'e2', type: 'voice', ts: T2, text: '我也在。', who: { id: '', name: '张三' } }),
+  ])
+  assert.equal(people.length, 2)
+  assert.equal(people.filter((p) => p.nameOnly).length, 1)
+})
+
+test('refs 指向「只有名字的人」时，判断也挂得上去', () => {
+  const people = peopleOf([
+    ev({ id: 'e1', type: 'voice', ts: T1, text: '我一般两点才睡。', who: { id: '', name: '张三' } }),
+    ev({ id: 'e2', type: 'utterance', ts: T2, text: '他说自己两点才睡。', refs: ['e1'] }),
+  ])
+  const zhang = people.find((p) => p.nameOnly)
+  assert.equal(zhang.judgments.length, 1)
+})
+
+// ---- 「只数不写」----
+// 只摆材料、不下结论；三个门槛（次数 / 跨度 / 夜里次数）都是为了不让她拿两三次当习惯。
+// 时间用本地时刻构造，免得在别的时区跑测试时「夜里」不成立。
+
+const at = (day, hour) => new Date(2026, 10, day, hour, 0).toISOString()
+
+test('次数要够、跨度要够，才摆「记下来过几次」', () => {
+  const enough = peopleOf(
+    [1, 3, 5, 7, 9].map((d, i) => ev({ id: `e${i}`, type: 'heard', ts: at(d, 12), text: '在。', who: OWNER })),
+  )
+  assert.equal(enough[0].times, 5)
+  assert.match(renderPerson(enough[0]), /你们之间记下来过 5 次，跨了 8 天/)
+
+  const few = peopleOf([1, 3, 5].map((d, i) => ev({ id: `f${i}`, type: 'heard', ts: at(d, 12), text: '在。', who: OWNER })))
+  assert.equal(few[0].times, 3)
+  assert.doesNotMatch(renderPerson(few[0]), /记下来过/, '三次就写成经常，那是噪声')
+})
+
+test('夜里那几次也要够数才摆，且说清是「记下来过」不是「出现过」', () => {
+  const night = peopleOf(
+    [1, 3, 5, 7, 9].map((d, i) => ev({ id: `n${i}`, type: 'heard', ts: at(d, 23), text: '在。', who: OWNER })),
+  )
+  assert.equal(night[0].nightTimes, 5)
+  const text = renderPerson(night[0])
+  assert.match(text, /其中 5 次在夜里/)
+  assert.doesNotMatch(text, /出现过/)
+
+  const mixed = peopleOf([
+    ev({ id: 'm1', type: 'heard', ts: at(1, 23), text: '在。', who: OWNER }),
+    ev({ id: 'm2', type: 'heard', ts: at(3, 12), text: '在。', who: OWNER }),
+    ev({ id: 'm3', type: 'heard', ts: at(5, 12), text: '在。', who: OWNER }),
+    ev({ id: 'm4', type: 'heard', ts: at(7, 12), text: '在。', who: OWNER }),
+    ev({ id: 'm5', type: 'heard', ts: at(9, 12), text: '在。', who: OWNER }),
+  ])
+  assert.equal(mixed[0].nightTimes, 1)
+  assert.doesNotMatch(renderPerson(mixed[0]), /在夜里/, '只有一次在夜里，不能当习惯摆出来')
+})
+

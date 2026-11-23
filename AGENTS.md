@@ -73,7 +73,7 @@
 node --test
 ```
 
-当前基线 **3264 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
+当前基线 **3270 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
 
 按环境挑跑法：
 
@@ -109,7 +109,7 @@ CI 也跑同一套（`.github/workflows/test.yml`，Node 20 / 22 / 24 各跑一�
 
 ```
 POST /dsh-fish/say
-{ "text": "…", "channel": "qq-group:987654", "scene": "group", "speaker": "张三", "title": "摸鱼群" }
+{ "text": "…", "channel": "qq-group:987654", "scene": "group", "speaker": "张三", "speakerId": "10001", "title": "摸鱼群" }
 ```
 
 | 字段 | 必填 | 说明 |
@@ -120,6 +120,7 @@ POST /dsh-fish/say
 | `scene` | 否 | `desk`（默认，等于不传）/ `private` / `group` |
 | `room` | 否 | `house`（并进书房）或 `channel`（另开一间）。不传时私聊回书房、群聊另开 |
 | `speaker` | 否 | 这句话是谁说的。**任何场次都写进正文前缀**，不再只限群聊 |
+| `speakerId` | 否 | 说话人的稳定 id（QQ 号之类，截 120 字）。**给了就优先用它认人**——名字会重、会改，id 不会。只给名字时，群里两个同名的人会被并成一个，改一次名又会被拆成两个（2026-11-24，认识人收尾） |
 | `guest` | 否 | `true` = 外客（群友私聊这类）。标明「不是他」，不算他来过、不涨轮数、不进书房桶 |
 | `owner` | 否 | `true` = **这条是他本人说的**（2026-11-08，用户 m00394）。桥按 QQ 号判，插件**不猜昵称**。只对 `scene:'group'` 有意义：群里他的话进记忆（一句原话，`heard` + `scene:group`；设置里「记你原话的间隔」为 0 时不记），但仍然**不算他来找过她**。不传 = 老行为 |
 | `title` | 否 | 侧栏显示名（群名、昵称）。不传才回落到 channel 键 |
@@ -346,7 +347,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test` 3264 全绿
+- [ ] `node --test` 3270 全绿
 - [ ] 改了 `lib/client/*.js` 或 `lib/session-pressure-formulas.js` 的话，跑过 `node scripts/build-client.mjs` 重产 `lib/client.js`
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明

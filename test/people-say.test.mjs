@@ -127,8 +127,27 @@ test('打开后：落一条她的话，带 who、带 scene、标 uncommitted', a
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
 })
 
-test('同一个人当天只记一条；换了人各记一条', async () => {
+// 桥给了 id 就按 id 记：群里有两个人同名时，没有 id 会并成一个人。
+test('给了 speakerId：落的是 id，同名的两个人各记一条', async () => {
   const root = await tmpRoot()
+  try {
+    await seed(root)
+    await config(root, { enabled: true })
+    const { ctx, emit } = fakeCtx()
+    speak(ctx, emit, '对第一个张三说的。')
+    await sayToHer(ctx, '在吗', { root, waitMs: 5_000, channel: 'qq-group:1', scene: 'group', speaker: '张三', speakerId: 'qq:10001' })
+
+    speak(ctx, emit, '对第二个张三说的。')
+    await sayToHer(ctx, '我也在', { root, waitMs: 5_000, channel: 'qq-group:1', scene: 'group', speaker: '张三', speakerId: 'qq:10002' })
+
+    const lines = await groupLines(root)
+    assert.equal(lines.length, 2, '同名不同 id 是两个人，不该并成一条')
+    assert.deepEqual(lines.map((l) => l.who.id), ['qq:10001', 'qq:10002'])
+    assert.deepEqual(lines.map((l) => l.who.name), ['张三', '张三'])
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+test('同一个人当天只记一条；换了人各记一条', async () => {  const root = await tmpRoot()
   try {
     await seed(root)
     await config(root, { enabled: true })
