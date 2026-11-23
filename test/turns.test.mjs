@@ -25,6 +25,7 @@ import {
   registerTurns,
   declareSource,
   clearDeclaredSources,
+  testAnswerCredit,
   TURN_TEXT_MAX,
 } from '../lib/turns.js'
 import { homeStatus } from '../lib/home.js'
@@ -293,6 +294,12 @@ test('来源判据：宿主拼的上下文和通知都不算人（2026-11-05）'
     { kind: 'repeat-tool-reminder', form: 'notice' },
     { kind: 'tool-goal', form: 'notice' },
     { kind: 'webhook', form: 'notice' },
+    // 2026-11-21（用户 m00612）：dsh-mnemon 的 runtime memory 注入漏网。
+    // kind 固定，form 是 memory-snapshot；两个都要挡住。
+    { kind: 'dsh-mnemon' },
+    { kind: 'dsh-mnemon', form: 'memory-snapshot' },
+    { kind: 'future-m', form: 'memory-snapshot' },
+    { kind: 'future-t', form: 'time-context' },
     // 宿主以后加的新上下文：kind 没见过，但 form 认得
     { kind: 'future-a', form: 'snapshot' },
     { kind: 'future-b', form: 'notice' },
@@ -518,6 +525,64 @@ test('她说出口的话：只收 text 块，reasoning 不算她说的话', () =
   assert.equal(assistantText({ message: { content: '字符串兜底' } }), '字符串兜底')
   assert.equal(assistantText({}), '')
   assert.equal(assistantText(null), '')
+})
+
+test('她说出口的话：末尾那对「告别 + 应答」不算她说的（记录层清掉，打日志）', () => {
+  const body = '这次没有一个人扛得住，只能全部一起重来。'
+  const logs = []
+  const said = assistantText(
+    {
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: `${body}\n\n明天再和你玩吧，我得出门了\n\n好，那你先忙。回来再接着聊。`,
+          },
+        ],
+      },
+    },
+    { log: (...args) => logs.push(args.join(' ')) },
+  )
+  assert.equal(said, body)
+  assert.equal(logs.length, 1)
+  assert.match(logs[0], /两个人的告别对白/)
+
+  // 正常的两段收尾照旧一个字不动
+  const normal = `${body}\n\n好了，你该走了。`
+  assert.equal(
+    assistantText({ message: { content: [{ type: 'text', text: normal }] } }, { log: () => {} }),
+    normal,
+  )
+})
+
+test('她自己接下去写「下一轮的时间头 + 整份提示词」，只留前面那句真话（记录层切掉，打日志）', () => {
+  const say = '不是我懂。评论区最上面两条就在那儿。'
+  const logs = []
+  const raw = [
+    say,
+    '',
+    'Time sampled while preparing turn 51, step 1: 2026-11-21T23:29:09+08:00[Asia/Shanghai]',
+    'Browser time zone for this call: unavailable. Ask the user to clarify.',
+    'Elapsed since the preceding model-visible message: 25m 20s.',
+    '',
+    '## 你是谁',
+    '你是一个……',
+    '## 现在',
+  ].join('\n')
+  const said = assistantText(
+    { message: { content: [{ type: 'text', text: raw }] } },
+    { log: (...args) => logs.push(args.join(' ')) },
+  )
+  assert.equal(said, say)
+  assert.equal(logs.length, 1)
+  assert.match(logs[0], /带回了宿主的时间头/)
+
+  // 正常提到这几个词（不是行首结构）不许切
+  const quoted = `${say}\n宿主注入的那行叫 Time sampled while preparing turn，我照着写就行。`
+  assert.equal(
+    assistantText({ message: { content: [{ type: 'text', text: quoted }] } }, { log: () => {} }),
+    quoted,
+  )
 })
 
 test('她屋里真人说一句 → turn/end 结账：turns +1、原话进 talkmem', async () => {
@@ -1318,12 +1383,25 @@ test('桥登记过的 prompt 照旧算他来过（登记表不能退化成摆设
   }
 })
 
+// 换房要抢文件锁（withFileLock 自己会等 8 秒），CI 的 Windows runner 只有两核，
+// 杀软还在扫 mkdtemp 目录，整套测试并行跑时这点活儿能拖到十几秒。
+// 等的时间给足；真等不到时把插件日志原样带进报错，不然只看到「超时」没法查。
+const ROTATE_WAIT_MS = 60_000
+
 test('满 rotateAfter 就换会话，事件流里留一条 meta', async () => {
   const root = await tmpRoot()
   try {
     await writeCfg(root, { chat: { rotateAfter: 1 } })
     const { ctx, created, renamed } = fakeCtx()
-    const off = registerTurns(ctx, { root, log: () => {} })
+    const logs = []
+    const off = registerTurns(ctx, {
+      root,
+      log: (m) => {
+        logs.push(String(m))
+      },
+    })
+    const withLogs = (err) =>
+      new Error(`${err?.message ?? err}\n插件日志：\n${logs.join('\n') || '（空）'}`, { cause: err })
     try {
       ctx.emit('session/event', session(), humanMsg('聊满一轮了'))
       ctx.emit('session/event', session(), TURN_END)
@@ -1331,6 +1409,8 @@ test('满 rotateAfter 就换会话，事件流里留一条 meta', async () => {
       const h = await waitFor(async () => {
         const st = await homeStatus(root)
         return st.sessionId && st.sessionId !== HER_SESSION ? st : null
+      }, ROTATE_WAIT_MS).catch((err) => {
+        throw withLogs(err)
       })
       assert.equal(created.length, 1, '只该建一个新会话')
       assert.equal(h.sessionId, 's-new-1')
@@ -1346,6 +1426,8 @@ test('满 rotateAfter 就换会话，事件流里留一条 meta', async () => {
           (e) => e.type === 'meta' && String(e.text ?? '').startsWith('rotate:'),
         )
         return hits.length === 1 ? hits : null
+      }, ROTATE_WAIT_MS).catch((err) => {
+        throw withLogs(err)
       })
       assert.equal(meta[0].text, 'rotate:1:s-new-1')
       assert.equal(meta[0].source, 'system')
@@ -1430,10 +1512,12 @@ test('换会话之后人还在旧的那条里说话 → 屋子认回它，轮数
       })
       assert.equal(h.sessionId, HER_SESSION, '屋子该认回他实际在说话的那条')
       assert.equal(h.turns, 1, '轮数接着数，不该停')
-      // 认回来之后这条会话不再是"换下来的"，carry 也不该再粘一遍
+      // 认回来之后这条会话不再是"换下来的"，但 carry 留着——他随后可能才搬进
+      // rotatedTo 那间，那时还要把交接页摆一次（2026-11-22，issue #171）。
       const raw = JSON.parse(await readFile(join(paths(root).root, 'home.json'), 'utf8'))
       assert.equal(raw.rotatedFrom, undefined)
-      assert.equal(raw.carry, undefined)
+      assert.deepEqual(raw.carry, [{ me: '上次说到这', her: '嗯' }], 'carry 留着给新房')
+      assert.equal(handoffArmed(HER_SESSION), false, '旧窗口不摆交接页')
     } finally {
       off()
     }
@@ -1645,7 +1729,8 @@ test('轮换后他先回旧窗口、随后搬进新会话 → 屋子跟到新会
       let raw = JSON.parse(await readFile(join(paths(root).root, 'home.json'), 'utf8'))
       assert.equal(raw.rotatedFrom, undefined, '认回旧窗口后不再记着它')
       assert.equal(raw.rotatedTo, 's-new-1', 'rotatedTo 要留着——他可能还会搬过去')
-      assert.equal(raw.carry, undefined)
+      assert.equal(raw.carry, '## 上次我们说到这\n- 旧话', 'carry 留着给新房（issue #171）')
+      assert.equal(handoffArmed(HER_SESSION), false, '旧窗口不摆交接页')
 
       // 第二步：他换到轮换建出来的新房间里说话（真机上这段聊了一整夜）
       ctx.emit('session/event', session('s-new-1'), humanMsg('我换到新房间了'))
@@ -1662,6 +1747,63 @@ test('轮换后他先回旧窗口、随后搬进新会话 → 屋子跟到新会
       off()
     }
   } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+  }
+})
+
+// 2026-11-22（issue #171）：上一条守的是「家跟过去」；这一条守交接页——
+// 他先回旧房说话时 carry 不能被认回时丢掉，等真搬进 rotatedTo 那间，
+// 第一轮要把「上次说到这」摆一次，看到之后才撤。
+test('先回旧房、隔一阵再进新房 → 交接页补摆一次（issue #171）', async () => {
+  resetHandoff()
+  const root = await tmpRoot()
+  try {
+    await writeCfg(root, { chat: { rotateAfter: 40 } })
+    await writeAtomic(
+      join(paths(root).root, 'home.json'),
+      JSON.stringify(
+        {
+          wsId: 'ws-1',
+          sessionId: 's-new-1',
+          createdAt: new Date(Date.now() - 60_000).toISOString(),
+          turns: 0,
+          rotatedFrom: HER_SESSION,
+          rotatedTo: 's-new-1',
+          rotatedAt: new Date(Date.now() - 60_000).toISOString(),
+          carry: '## 上次我们说到这\n- 还没说完的话',
+        },
+        null,
+        2,
+      ),
+    )
+    const { ctx } = fakeCtx()
+    const off = registerTurns(ctx, { root, log: () => {} })
+    try {
+      // 第一步：换房后他先回旧窗口说了一句——认回旧会话，页不在这里摆。
+      ctx.emit('session/event', session(HER_SESSION), humanMsg('我先在旧的这里说一句'))
+      ctx.emit('session/event', session(HER_SESSION), TURN_END)
+      await waitFor(async () => {
+        const st = await homeStatus(root)
+        return st.sessionId === HER_SESSION && st.turns > 0 ? st : null
+      })
+      await settled()
+      assert.equal(handoffArmed(HER_SESSION), false, '旧窗口不摆交接页')
+
+      // 第二步：隔了一阵他才搬进新房——第一轮把交接页摆出来，看到之后撤。
+      ctx.emit('session/event', session('s-new-1'), humanMsg('我搬过来了'))
+      await waitFor(async () => handoffArmed('s-new-1'))
+      markHandoffShown('s-new-1')
+      ctx.emit('session/event', session('s-new-1'), TURN_END)
+      const gone = await waitFor(async () => {
+        const raw = JSON.parse(await readFile(join(paths(root).root, 'home.json'), 'utf8'))
+        return raw.sessionId === 's-new-1' && !('carry' in raw) ? raw : null
+      })
+      assert.equal(gone.carry, undefined, '补摆过一次之后才撤')
+    } finally {
+      off()
+    }
+  } finally {
+    resetHandoff()
     await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 })
@@ -1760,6 +1902,41 @@ test('交接页没进她的上下文：这一轮结完不许清 carry，下一�
     }
   } finally {
     resetHandoff()
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+  }
+})
+
+// 2026-11-22（issue #171）：换房之后他还在旧房间里说话，家被认回旧窗口、carry 也被清掉，
+// 从此每一轮 handoffArmed 都是 false —— 旧写法照样记「没进上下文」，真机一晚上刷了 79 条。
+test('没摆过交接页的普通一轮：不记「没进上下文」', async () => {
+  const root = await tmpRoot({
+    turns: 5,
+    rotatedTo: 's-new-1',
+    rotatedAt: new Date(Date.now() - 60_000).toISOString(),
+  })
+  try {
+    await writeCfg(root, { chat: { rotateAfter: 40 } })
+    const logs = []
+    const { ctx } = fakeCtx()
+    const off = registerTurns(ctx, { root, log: (m) => logs.push(String(m)) })
+    try {
+      ctx.emit('session/event', session(HER_SESSION), humanMsg('还在旧房间里说一句'))
+      ctx.emit('session/event', session(HER_SESSION), TURN_END)
+      const st = await waitFor(async () => {
+        const s = await homeStatus(root)
+        return s.turns > 5 ? s : null
+      })
+      assert.equal(st.turns, 6, '轮次照常结')
+      await settled()
+      assert.equal(
+        logs.filter((m) => m.includes('交接页没进这一轮的上下文')).length,
+        0,
+        '这一轮根本没摆过交接页，不该报「没进上下文」',
+      )
+    } finally {
+      off()
+    }
+  } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 })
@@ -2364,4 +2541,24 @@ test('他一开口撤掉叫醒处境时留一行（下一次同类报告能对�
   } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
+})
+
+test('检验卡的回话算不算一次检验：编号和材料都要（2026-11-21，用户 m03644）', () => {
+  const id = 'b1k2m3n4p5q6r7s8t9u0v1w2'
+  // 带了编号、也引了这一轮的材料，且她说改了 → 记一次 changed
+  assert.deepEqual(testAnswerCredit(`「${id}」这条我改了口：视频里那句「先看结果」让我把顺序反过来。`, id), {
+    ok: true,
+    verdict: 'changed',
+  })
+  // 带编号、对了材料，结论是「还站得住」→ 也算一次（卡本来就允许没有结论）
+  assert.deepEqual(testAnswerCredit(`${id} 对过了，11 月 18 号那条评论确实是我回过的。`, id), {
+    ok: true,
+    verdict: 'held',
+  })
+  // 只带编号、没说任何材料 → 不记
+  assert.equal(testAnswerCredit(`${id} 我还是这么想。`, id).ok, false)
+  // 她自己说还没碰上 → 不记（卡里特意留的口子）
+  assert.equal(testAnswerCredit(`${id} 今天没碰上什么新东西。`, id).ok, false)
+  // 引了材料但没带编号 → 不记（没法知道她说的是哪条）
+  assert.equal(testAnswerCredit('视频里那句「先看结果」让我改口了。', id).ok, false)
 })

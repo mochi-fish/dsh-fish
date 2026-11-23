@@ -1,6 +1,6 @@
 {
   "name": "@ssamurias/dsh-fish",
-  "version": "1.0.6",
+  "version": "1.0.8",
   "description": "养一条会自己长大的鱼：没有人格设置，通过事件流长大。她可以自己刷 B 站、会写日记给你看，四个阶段完成后才会开始有立场。状态库在 ~/.dsh-fish，不能删除记录。",
   "type": "module",
   "main": "lib/index.js",
@@ -65,11 +65,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ssamurias/dsh-fish.git"
+    "url": "git+https://github.com/mochi-fish/dsh-fish.git"
   },
-  "homepage": "https://github.com/ssamurias/dsh-fish#readme",
+  "homepage": "https://github.com/mochi-fish/dsh-fish#readme",
   "bugs": {
-    "url": "https://github.com/ssamurias/dsh-fish/issues"
+    "url": "https://github.com/mochi-fish/dsh-fish/issues"
   },
   "engines": {
     "node": ">=20",
