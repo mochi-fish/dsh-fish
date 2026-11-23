@@ -49,6 +49,16 @@ test('换会话带几轮原话：默认 3，夹在 0..CARRY_MAX', () => {
   assert.equal(normalizeConfig({ chat: { carry: 'abc' } }).chat.carry, 3)
 })
 
+// 2026-11-23（用户 m01320）：一天最多几版从写死的 2 改成设置项，默认保持 2。
+test('一天最多几版：默认 2，夹在 1..20', () => {
+  assert.equal(normalizeConfig({}).works.versionsPerDay, 2)
+  assert.equal(normalizeConfig({ works: { versionsPerDay: 0 } }).works.versionsPerDay, 1)
+  assert.equal(normalizeConfig({ works: { versionsPerDay: 99 } }).works.versionsPerDay, 20)
+  assert.equal(normalizeConfig({ works: { versionsPerDay: 7 } }).works.versionsPerDay, 7)
+  // 写坏了不崩，回默认
+  assert.equal(normalizeConfig({ works: { versionsPerDay: 'abc' } }).works.versionsPerDay, 2)
+})
+
 test('非法时间窗回落到默认，不抛错', () => {
   assert.deepEqual(normalizeConfig({ window: ['25:00', 'abc'] }).window, DEFAULTS.window)
   assert.deepEqual(normalizeConfig({ window: ['09:00', '09:00'] }).window, DEFAULTS.window)

@@ -189,6 +189,35 @@ test('一天两版：接着改两次就停，明天还能接着改', async () =>
   })
 })
 
+test('一天最多几版跟设置走：给 5 就能改到 5 版，第 6 版才拦', async () => {
+  await withRoot(async (root) => {
+    assert.equal((await makeWork(root, { title: '多改几版', text: '一。', now: NOW, versionsPerDay: 5 })).ok, true)
+    for (let i = 2; i <= 5; i++) {
+      const v = await makeWork(root, { title: '多改几版', text: `${i}。`, now: NOW + i * 1000, versionsPerDay: 5 })
+      assert.equal(v.ok, true, `第 ${i} 版应该留得下`)
+      assert.equal(v.version, i)
+    }
+    const sixth = await makeWork(root, { title: '多改几版', text: '六。', now: NOW + 6000, versionsPerDay: 5 })
+    assert.equal(sixth.ok, false)
+    assert.match(sixth.note, /今天已经改过 5 版了/)
+    assert.equal((await readWorks(root)).items[0].versions.length, 5)
+
+    // 跨天重置：第二天还能接着改，仍然按同一个上限
+    const tomorrow = await makeWork(root, { title: '多改几版', text: '七。', now: day(1), versionsPerDay: 5 })
+    assert.equal(tomorrow.ok, true)
+    assert.equal(tomorrow.version, 6)
+  })
+})
+
+test('设成 1 就是当天只留一版：改一版也被拦', async () => {
+  await withRoot(async (root) => {
+    assert.equal((await makeWork(root, { title: '只留一版', text: '一。', now: NOW, versionsPerDay: 1 })).ok, true)
+    const second = await makeWork(root, { title: '只留一版', text: '二。', now: NOW + 1000, versionsPerDay: 1 })
+    assert.equal(second.ok, false)
+    assert.match(second.note, /今天已经改过 1 版了/)
+  })
+})
+
 test('一天只起一件新的；七天三件到顶就停', async () => {
   await withRoot(async (root) => {
     await makeWork(root, { title: '甲', text: '甲的正文。', now: day(0) })

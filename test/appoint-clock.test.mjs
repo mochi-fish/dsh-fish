@@ -75,10 +75,10 @@ test('晚了多少分钟：没到点是 null，过了向下取整', () => {
 
 test('带时刻的约定：今天要留半小时、格式要写对、明天随便约', async () => {
   await withRoot(async (root) => {
-    // 现在 10:00，约今天 08:00：已经过去，也来不及准备。
+    // 现在 10:00，约今天 08:00：已经过去了。
     const past = await makeAppointment(root, { what: '说一声早安', due: '2026-11-08', time: '08:00', now: NOW })
     assert.equal(past.ok, false)
-    assert.match(past.note, /半小时/)
+    assert.match(past.note, /过去/)
     // 现在 10:00，约今天 10:10：只差十分钟，来不及准备。
     const soon = await makeAppointment(root, { what: '说一声早安', due: '2026-11-08', time: '10:10', now: NOW })
     assert.equal(soon.ok, false)

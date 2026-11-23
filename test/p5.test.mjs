@@ -353,6 +353,44 @@ test('/config 收得下自动备份的三个设置项（用户 m00002）', async
   }
 })
 
+test('/config 收得下「一天最多几版」（用户 m01320）', async () => {
+  // 这一项不挤进 buildConfig() 整表（同理备份那三项），所以反查不到白名单；
+  // 真发一次 POST：漏登记时设置页会看到「这一版还不支持保存：works」。
+  const root = await mkdtemp(join(tmpdir(), 'fish-p5w-'))
+  try {
+    const ctx = fakeCtx(root)
+    ctx.cfg.connection = { requestRejection: () => null }
+    registerObserve(ctx, { root })
+    const route = ctx.routes.find((r) => String(r.path || '').endsWith('/config'))
+    let status = 0
+    let payload = null
+    const res = { writeHead: (s) => { status = s }, end: (s) => { payload = JSON.parse(s || '{}') }, setHeader: () => {} }
+    const body = JSON.stringify({ works: { versionsPerDay: 6 } })
+    const req = {
+      method: 'POST',
+      url: '/dsh-fish/config',
+      headers: { 'content-type': 'application/json' },
+      on: (ev, fn) => { if (ev === 'data') fn(Buffer.from(body, 'utf8')); if (ev === 'end') fn() },
+    }
+    await route.handler(req, res)
+    assert.equal(status, 200, `保存不该被挡回来：${JSON.stringify(payload)}`)
+    assert.equal(payload.config.works.versionsPerDay, 6)
+    // 越界由 LIMITS 夹住，不是拒收
+    const body2 = JSON.stringify({ works: { versionsPerDay: 99 } })
+    const req2 = {
+      method: 'POST',
+      url: '/dsh-fish/config',
+      headers: { 'content-type': 'application/json' },
+      on: (ev, fn) => { if (ev === 'data') fn(Buffer.from(body2, 'utf8')); if (ev === 'end') fn() },
+    }
+    await route.handler(req2, res)
+    assert.equal(status, 200)
+    assert.equal(payload.config.works.versionsPerDay, 20)
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
+})
+
 test('设置界面面向用户的文案里不出现男字旁的「他」', async () => {
   const src = await readFile(CLIENT, 'utf8')
   // 只扫字符串字面量，注释不算（注释里保留原话便于追溯）。

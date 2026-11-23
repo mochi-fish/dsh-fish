@@ -174,6 +174,68 @@ test('第 1 条：记忆页「折成一行」的条数和预算用量跟身份�
   })
 })
 
+test('第 1 条：判断那一段被预算挤掉时，报的是 0 条，不是设置里的几条', async () => {
+  await withRoot(async (root) => {
+    await twentyBeliefs(root, { beliefsShown: 3, sleepKeep: 0 })
+    const { events } = await readEvents(root)
+    const model = deriveSelf(events, { growthDays: 30 })
+
+    // 宽预算：3 条真的进了文档
+    const wide = personaBudget(model, { budget: 2800, withBans: true, shown: 3, sleepKeep: 0 })
+    assert.equal(wide.beliefs.kept, true)
+    assert.equal(wide.beliefs.lines, 3)
+    assert.equal(wide.beliefs.declared, 3)
+    assert.equal(wide.beliefs.reason, 'kept')
+
+    // 紧预算：那一段整段没放下——报数必须是 0（她一条也没看到），另把「本该几条」留在 declared
+    const tight = personaBudget(model, { budget: 10, withBans: true, shown: 3, sleepKeep: 0 })
+    assert.equal(tight.beliefs.kept, false)
+    assert.equal(tight.beliefs.lines, 0)
+    assert.equal(tight.beliefs.declared, 3)
+    assert.equal(tight.beliefs.reason, 'budget', '没放下要说清是字数紧')
+    assert.ok(tight.dropped.some((d) => d.startsWith('你自己说过的话')), `dropped=${tight.dropped}`)
+
+    // 观测台按装配计划报数，跟上面同一个口径
+    const r = await call(root, '/memory')
+    const pb = personaBudget(model, {
+      budget: r.json.selfDoc.budget,
+      withBans: true,
+      shown: 3,
+      sleepKeep: r.json.sections.beliefsKept ? 0 : r.json.sections.beliefsDeclared,
+    })
+    assert.equal(r.json.sections.beliefsKept, wide.beliefs.kept)
+    assert.equal(r.json.sections.beliefsShown, wide.beliefs.lines)
+    assert.equal(r.json.sections.beliefsReason, 'kept')
+    assert.equal(r.json.sections.beliefsTotal, model.beliefs.length)
+    assert.equal(pb.beliefs.lines, r.json.sections.beliefsShown, '记忆页与身份文档同一个数')
+  })
+})
+
+test('第 1 条：判断全在某个人名下时，说「摆在别处」，不说「字数紧」', async () => {
+  await withRoot(async (root) => {
+    const t0 = Date.now() - 3 * DAY
+    await writeEvents(root, [
+      line('seed', '你不是助手。', t0),
+      ...TWENTY.slice(0, 4).map((text, i) => line('utterance', text, t0 + (i + 1) * 60_000, { who: { id: 'owner', name: '阿程' } })),
+    ])
+    await writeConfig(normalizeConfig({ memory: { beliefsShown: 3, sleepKeep: 0 } }), root)
+    assert.equal((await writeSelfDoc(root)).ok, true)
+    assert.ok(!(await doc(root)).includes('## 你自己说过的话'), '对某个人的判断只摆在「你认识的」那一节里')
+
+    const { json } = await call(root, '/memory')
+    assert.equal(json.sections.beliefsShown, 0)
+    assert.equal(json.sections.beliefsKept, false)
+    assert.equal(json.sections.beliefsReason, 'placed', '不是字不够，是摆到别处了')
+    assert.equal(json.sections.beliefsTotal, 4)
+
+    const { events } = await readEvents(root)
+    const model = deriveSelf(events, { growthDays: 30 })
+    const pb = personaBudget(model, { budget: 2800, withBans: true, shown: 3, sleepKeep: 0 })
+    assert.equal(pb.beliefs.reason, 'placed')
+    assert.ok(!pb.dropped.some((d) => d.startsWith('你自己说过的话')), '这一段根本没参与装配，不该算作被挤掉')
+  })
+})
+
 test('第 1 条：状态页的「稳定」量的是她真读到的那份身份文档，「总共留几条自述」也算进去', async () => {
   await withRoot(async (root) => {
     const twelve = TWENTY.slice(0, 12)

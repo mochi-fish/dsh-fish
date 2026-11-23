@@ -1,5 +1,7 @@
 ## 1.0.10 — 未发布
 
+- **「一天最多改几版」也能自己调了（2026-11-23，用户 m01320）。** 改版原先有一条写死的硬上限：一天两版（`lib/works.js` 的 `WORK_VERSIONS_PER_DAY`）。有人想一天多改几版，她自己也在对话里说过想改却改不了。现在做成设置项 `works.versionsPerDay`：默认 2、范围 1–20，位置在设置 →「她做的东西」→「一天最多改几版」；只在改同一件时计数，含当天第一次留的那一版（2 = 留一件、再改一版），按本地日期算、跨天重置。拦下时的回执跟着设置走（「今天已经改过 N 版了。剩下的明天再动。」），不会再说死「两版」。`/config` 白名单收了 `works`，设置页存得进去、填超范围会夹回 1–20。
+  - 新增 `test/works.test.mjs` 两条（给 5 能改到 5 版、第 6 版才拦；设成 1 时改一版就拦）、`test/settings.test.mjs` 一条（默认 2、夹在 1..20）、`test/p5.test.mjs` 一条（`/config` 收得下并夹值）。
 - **定时刷站、安静刷、读评论回复原来都是匿名请求，登录着也看不见第 4 条以后的评论（2026-11-23，PR #178 @t2972746）。** 那两条定时路建客户端时没读 `owner.json` 的 cookie，而 B 站对匿名请求翻评论只回 3 条（`data=3`），登录后回 20——所以「每条读几条热评」设 15 也只能看到三四条，深读等于白读。`bili_look` 那条路从 1.0.6（PR #150）起就带登录态，只有后台这两条漏着。改法与 `lib/look.js` 的 `lookOnce` 同构：`lib/scheduler.js` 新增 `biliClientFor(root, log)` 读 `owner.json` 的 `cookie`（读失败退回空串），`lookBeforeWake()` 与 `quietBrowse()` 改用它；`deps.client` 仍优先，`await` 只包 helper（测试里注入的假客户端有的是 thenable Proxy，塞进 `await` 会永不 resolve）。
   - 顺手补上同一族的另一处：`lib/comment.js` 的 `scanReplies()` / `readMyReplies()` 过去也是 `createClient({})`，现在都读同一份登录态——读自己评论楼下的回复同样受那个「匿名只回 3 条」的限制。
   - 文档里的说法跟着改实：`lib/look.js` 文件头原写「不带 cookie、不点赞、不评论」，从 1.0.6 起这句就不对；现在写「只读，不点赞、不评论；登录过就带主人的登录态请求」，`lib/comment.js` 的 browse 说明与 `README.md` 的隐私边界段补上「醒来前刷站、安静刷、读回复也复用这份登录态，只读不写」。

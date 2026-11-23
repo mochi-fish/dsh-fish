@@ -202,7 +202,7 @@ test('改期也要过撞点与半小时准备：挪到挨着的点儿、或挪�
     assert.equal(soon.ok, true)
     const moved = await moveAppointment(root, { id: soon.id, newDue: '2026-11-08', now: NOW })
     assert.equal(moved.ok, false)
-    assert.match(moved.note, /半小时/)
+    assert.match(moved.note, /过去/)
   })
 })
 

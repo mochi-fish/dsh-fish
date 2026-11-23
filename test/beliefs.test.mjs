@@ -109,7 +109,11 @@ test('观测台与身份文档同源：/memory 用 shownCount 而不是写死的
     src.includes('const kept = keepCap === null ? model.beliefs.length : Math.min(model.beliefs.length, Math.max(keepCap, shownCap))'),
     '总数上限要先夹住，再看眼前几条',
   )
-  assert.ok(src.includes('const shown = Math.min(shownCap, kept)'), '眼前几条永远不超过 shownCap')
+  // 2026-11-23（外部报告）：原来这里断言 `Math.min(shownCap, kept)`——按设置报「眼前几条」。
+  // 可判断那一段是可选段，预算紧的时候会整段被挤掉，于是面板说她看到 4 条、其实 0 条。
+  // 现在按装配计划报：没进文档就是 0 条，另给 beliefsKept 让界面改口。
+  assert.ok(src.includes('const laid = pb.beliefs ?? null'), '判断那段报数要读装配计划')
+  assert.ok(src.includes('beliefsKept: laid ? laid.kept : false'), '整段被挤掉时要能告诉界面')
 })
 
 test('白名单里额外放行的工具要念给她听（0.6.1，用户 m01371）', () => {
