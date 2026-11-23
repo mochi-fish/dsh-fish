@@ -13,6 +13,7 @@
     "LICENSE",
     "THIRD-PARTY-NOTICES.md",
     "lib",
+    "!lib/client/",
     "media",
     "cordis.patch.yml",
     "README.md",
@@ -21,6 +22,8 @@
     "RELEASE-NOTES-*.md",
     "docs",
     "scripts",
+    "!scripts/build-client.mjs",
+    "!scripts/sync-pressure-formulas.mjs",
     "tools"
   ],
   "scripts": {

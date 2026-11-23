@@ -42,10 +42,15 @@ const REQUIRED = [
 
 // 包里不该有的：测试、仓库维护者的东西。
 // （docs/ 从 1.0.2 起进包，理由见上；README 仍然用 GitHub 绝对地址，npm 页面上也能点。）
-const FORBIDDEN = ['test/', '.github/', 'SECURITY.md', 'CONTRIBUTING.md', 'RELEASE.md'];
+const FORBIDDEN = ['test/', '.github/', 'SECURITY.md', 'CONTRIBUTING.md', 'RELEASE.md',
+  // 前端分片只是 lib/client.js 的源码，包里已经有拼好的那份；两份一起发等于前端带两遍。
+  // 拼接脚本离开分片跑不了，跟着一起不进包。
+  'lib/client/', 'scripts/build-client.mjs', 'scripts/sync-pressure-formulas.mjs'];
 
 const bad = [];
 for (const p of REQUIRED) if (!has(p)) bad.push('缺了 ' + p);
+// 浏览器那半边只认拼好的这一个文件，少了设置页就是空的。
+if (!files.includes('lib/client.js')) bad.push('缺了 lib/client.js');
 if (!files.some((f) => /^RELEASE-NOTES-[^/]+\.md$/.test(f))) bad.push('缺了 RELEASE-NOTES-*.md');
 for (const p of FORBIDDEN) if (has(p)) bad.push('不该有 ' + p);
 
