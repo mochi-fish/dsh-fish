@@ -133,6 +133,8 @@ const MAP = [
   ['bili_sub', TOOL_BRIEF, /到底说了哪几句/],
   // 2026-11-18（用户 m01161）：立场清单得能核对来源，也能整条撤掉。
   ['her_stance', TOOL_BRIEF, /没底时/],
+  // 1.1.0（S3-c）：身份段只摆三个人、每人一行，想细看得有地方翻。
+  ['her_people', TOOL_BRIEF, /想细看谁/],
   ['her_recall', RECALL_BRIEF, /我记得有一次/],
   ['her_leave', LETTER_BRIEF, /什么时候想起它/],
   ['her_note', NOTE_BRIEF, /老在同一个地方绕/],

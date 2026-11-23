@@ -37,6 +37,7 @@ import { registerLook } from '../lib/look.js'
 import { registerSpeak } from '../lib/speak.js'
 import { registerRecall } from '../lib/recall.js'
 import { registerHerDiary } from '../lib/herdiary.js'
+import { registerHerPeople } from '../lib/herpeople.js'
 import { registerHerStance } from '../lib/stance.js'
 import { registerWatch } from '../lib/watch.js'
 import { registerSub } from '../lib/sub.js'
@@ -92,6 +93,7 @@ function registerAllTools(root) {
     registerSpeak(ctx, { root, client: {}, speakEnabled: true })
     registerRecall(ctx, { root })
     registerHerDiary(ctx, { root })
+    registerHerPeople(ctx, { root })
     registerHerStance(ctx, { root })
     registerWatch(ctx, { root })
     registerSub(ctx, { root })
