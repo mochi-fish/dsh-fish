@@ -159,6 +159,33 @@ test('下一次还没到的约定；列表只列 open 且按日子排', async ()
   })
 })
 
+test('list 能按天找；列不完时说「还有」，但不报条数', async () => {
+  await withRoot(async (root) => {
+    for (let i = 0; i < 6; i += 1) {
+      await makeAppointment(root, { what: `第 ${i + 1} 天的事`, due: addDays('2026-11-10', i), now: NOW })
+    }
+    const all = await listAppointments(root, { now: NOW })
+    assert.equal(all.ok, true)
+    const lines = all.text.split('\n')
+    assert.equal(lines.length, 6, '默认 5 条 + 一句「还有」')
+    const tail = lines.pop()
+    assert.match(tail, /还有/)
+    assert.doesNotMatch(tail, /\d/, '提示里不报数字')
+
+    const oneDay = await listAppointments(root, { due: '2026-11-11', now: NOW })
+    assert.equal(oneDay.text.split('\n').length, 1)
+    assert.ok(oneDay.text.includes('第 2 天的事'))
+
+    const wider = await listAppointments(root, { limit: 20, now: NOW })
+    assert.equal(wider.text.split('\n').length, 6)
+    assert.ok(!wider.text.includes('只列了最近的几条'))
+
+    const bad = await listAppointments(root, { due: '2026-13-01', now: NOW })
+    assert.equal(bad.ok, false)
+    assert.ok(bad.note.includes('2026-11-11'))
+  })
+})
+
 test('做到 / 取消：取消必须说一句为什么，关掉后不再占位', async () => {
   await withRoot(async (root) => {
     const a = await makeAppointment(root, { what: '做完的那件', due: '2026-11-11', now: NOW })
