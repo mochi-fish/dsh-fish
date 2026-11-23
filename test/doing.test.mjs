@@ -37,9 +37,10 @@ test('doingConfig 默认关，数值夹紧', () => {
   const cfg = doingConfig({})
   assert.equal(cfg.enabled, false)
   assert.equal(cfg.consumePerDay, DOING_DEFAULTS.consumePerDay)
-  const tight = doingConfig({ proactive: { allowDoing: true, consumePerDay: 99, itemCooldownDays: -3 } })
+  const tight = doingConfig({ proactive: { allowDoing: true, consumePerDay: 99, consumePerWeek: 999, itemCooldownDays: -3 } })
   assert.equal(tight.enabled, true)
-  assert.equal(tight.consumePerDay, 6)
+  assert.equal(tight.consumePerDay, 20)
+  assert.equal(tight.consumePerWeek, 100)
   assert.equal(tight.itemCooldownDays, 0)
 })
 
@@ -84,6 +85,7 @@ test('doingUsage：只数成功，消耗按当天算', () => {
   ]
   const u = doingUsage(events, now)
   assert.equal(u.consumeToday, 1)
+  assert.equal(u.consumeWeek, 2)
   assert.equal(u.byClass.consume, 2)
   assert.equal(u.byClass.produce, 1)
 })
@@ -106,17 +108,34 @@ test('同一件冷却三天', () => {
   assert.equal(other.ok, true)
 })
 
-test('连续三次同类，歇一周；过了一周又能做', () => {
+test('周上限：滚动七天够数就拦，0 表示不限', () => {
   const now = Date.now()
   const three = [
     did({ key: 'bili_look:A', ts: now - 2 * DAY }),
     did({ key: 'bili_look:B', ts: now - 2 * DAY + HOUR }),
     did({ key: 'bili_look:C', ts: now - 2 * DAY + 2 * HOUR }),
   ]
-  assert.equal(checkDoing({ name: 'bili_look', args: { bvid: 'D' }, events: three, now }).code, 'binge')
+  assert.equal(checkDoing({ name: 'bili_look', args: { bvid: 'D' }, events: three, now }).code, 'week')
+  assert.equal(
+    checkDoing({ name: 'bili_look', args: { bvid: 'D' }, events: three, now, config: { proactive: { consumePerWeek: 10 } } }).ok,
+    true,
+  )
+  assert.equal(
+    checkDoing({ name: 'bili_look', args: { bvid: 'D' }, events: three, now, config: { proactive: { consumePerWeek: 0 } } }).ok,
+    true,
+  )
 
   const old = three.map((e, i) => meta(e.text, now - 8 * DAY + i * HOUR))
   assert.equal(checkDoing({ name: 'bili_look', args: { bvid: 'D' }, events: old, now }).ok, true)
+})
+
+test('日上限调到 5 后，同一天可以做到第五件', () => {
+  const now = noonOfToday()
+  const four = ['A', 'B', 'C', 'D'].map((k, i) => did({ key: `bili_look:${k}`, ts: now - 4 * HOUR + i * HOUR }))
+  const cfg = { proactive: { consumePerDay: 5, consumePerWeek: 10, itemCooldownDays: 0 } }
+  assert.equal(checkDoing({ name: 'bili_look', args: { bvid: 'E' }, events: four, now, config: cfg }).ok, true)
+  const five = [...four, did({ key: 'bili_look:E', ts: now - HOUR })]
+  assert.equal(checkDoing({ name: 'bili_look', args: { bvid: 'F' }, events: five, now, config: cfg }).code, 'daily')
 })
 
 test('关掉消耗额度时一律不做', () => {
