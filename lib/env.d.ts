@@ -2,11 +2,16 @@
  * env.d.ts —— 零依赖环境下的 Node.js 内置模块与全局对象最小类型声明
  *
  * 铁律要求 `devDependencies` 保持 `{}`，不装 `@types/node`；
- * 本文件提供插件实际用到的 `node:*` 内置模块与 `Buffer`/`process` 声明，
+ * 本文件提供插件实际用到的 `node:*` 内置模块与 `Buffer`/`process`/定时器/`URL` 等全局声明，
  * 让本地 IDE 语言服务与 CI `npx tsc -p jsconfig.json --noEmit` 在零安装状态下直接通过。
+ *
+ * 为什么不借 DOM lib：服务端代码跑在 Node 里，DOM 会让 `window`/`document`/`localStorage`
+ * 在这里也查得过，而且同名全局的签名和 Node 不一样（`setTimeout` 在 DOM 里返回 `number`）。
+ * 所以 `jsconfig.json` 只开 `ES2023`，用到哪个运行时全局就在这里补哪个；
+ * 新开 `@ts-check` 的文件报「Cannot find name」时，照 Node 的真实签名往下加，别把 DOM 加回去。
  */
 
-interface Buffer extends Uint8Array {
+interface Buffer extends Uint8Array<ArrayBuffer> {
   toString(encoding?: string, start?: number, end?: number): string
   equals(other: Uint8Array): boolean
   subarray(start?: number, end?: number): Buffer
@@ -44,13 +49,9 @@ declare var process: {
 }
 
 /**
- * Node 的定时器句柄。
- *
- * `jsconfig.json` 借 DOM lib 拿 `fetch`/`URL` 这些全局，可 DOM 把 `setTimeout`/`setInterval`
- * 的返回值写成 `number`；在 Node 里它是个对象，插件到处靠 `.unref?.()` 不拖住进程退出。
- * 不补这几条，`heartbeat.unref?.()` 这类写法在 CI 里报 TS2339（本地若上级目录恰好有
- * `@types/node` 会被自动收进来、看不出问题——所以 jsconfig 同时写死了 `types: []`）。
- * 下面的重载与 DOM 那条合并，无 `window.` 前缀的调用解析到这里。
+ * Node 的定时器句柄。插件到处靠 `.unref?.()` 不拖住进程退出，所以返回值得是对象，不是 `number`。
+ * （`jsconfig.json` 同时写死了 `types: []`：不写的话 tsc 会自动收进上级目录里的
+ * `node_modules/@types/*`，本机恰好有 `@types/node` 时看到的类型和 CI 不一样。）
  */
 interface NodeTimeout {
   ref(): this
@@ -64,6 +65,81 @@ declare function setTimeout<TArgs extends any[]>(callback: (...args: TArgs) => v
 declare function setInterval<TArgs extends any[]>(callback: (...args: TArgs) => void, ms?: number, ...args: TArgs): NodeTimeout
 declare function clearTimeout(timeout: NodeTimeout | string | number | undefined | null): void
 declare function clearInterval(timeout: NodeTimeout | string | number | undefined | null): void
+
+declare var console: {
+  log(...args: any[]): void
+  info(...args: any[]): void
+  warn(...args: any[]): void
+  error(...args: any[]): void
+  debug(...args: any[]): void
+}
+
+interface ImportMeta {
+  url: string
+}
+
+interface URLSearchParams {
+  get(name: string): string | null
+  getAll(name: string): string[]
+  has(name: string): boolean
+  set(name: string, value: string): void
+  append(name: string, value: string): void
+  delete(name: string): void
+  keys(): IterableIterator<string>
+  values(): IterableIterator<string>
+  entries(): IterableIterator<[string, string]>
+  forEach(callback: (value: string, key: string) => void): void
+  toString(): string
+  [Symbol.iterator](): IterableIterator<[string, string]>
+}
+
+declare var URLSearchParams: {
+  new (init?: string | Record<string, string> | Iterable<[string, string]>): URLSearchParams
+}
+
+interface URL {
+  href: string
+  readonly origin: string
+  protocol: string
+  username: string
+  password: string
+  host: string
+  hostname: string
+  port: string
+  pathname: string
+  search: string
+  readonly searchParams: URLSearchParams
+  hash: string
+  toString(): string
+  toJSON(): string
+}
+
+declare var URL: {
+  new (url: string | URL, base?: string | URL): URL
+  canParse(url: string, base?: string): boolean
+}
+
+interface AbortSignal {
+  readonly aborted: boolean
+  readonly reason: any
+  throwIfAborted(): void
+  addEventListener(type: 'abort', listener: () => void, options?: { once?: boolean }): void
+  removeEventListener(type: 'abort', listener: () => void): void
+}
+
+declare var AbortSignal: {
+  abort(reason?: any): AbortSignal
+  timeout(ms: number): AbortSignal
+}
+
+interface AbortController {
+  readonly signal: AbortSignal
+  abort(reason?: any): void
+}
+
+declare var AbortController: {
+  new (): AbortController
+}
 
 declare module 'node:fs' {
   const fs: {

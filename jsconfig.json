@@ -6,11 +6,12 @@
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,
+    "strict": false,
     "strictNullChecks": true,
     "noImplicitAny": false,
     "skipLibCheck": true,
     "types": [],
-    "lib": ["ES2023", "DOM"]
+    "lib": ["ES2023"]
   },
   "include": [
     "lib/**/*.js",

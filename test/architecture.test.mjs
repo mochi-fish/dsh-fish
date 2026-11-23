@@ -59,6 +59,12 @@ test('类型契约防漂移：types.d.ts 与 schema.js 的事件类型、场次�
   assert.equal(jsconfig.compilerOptions?.allowJs, true)
   assert.equal(jsconfig.compilerOptions?.noEmit, true)
   assert.equal(jsconfig.compilerOptions?.strictNullChecks, true)
+  // 服务端跑在 Node 里：DOM 的 setTimeout 返回 number，会把 .unref?.() 判成错，也会让 window/document 查得过。
+  assert.ok(!(jsconfig.compilerOptions?.lib ?? []).some((l) => /^dom/i.test(l)), 'jsconfig 不要借 DOM lib，缺的全局补进 lib/env.d.ts')
+  // 不写死空数组，tsc 会自动收进上级目录的 @types/node，本地和 CI 看到的类型就不一样了。
+  assert.deepEqual(jsconfig.compilerOptions?.types, [])
+  // TypeScript 6 把 strict 默认改成开；写明了，5.x 与 6.x 才是同一套规则。
+  assert.equal(jsconfig.compilerOptions?.strict, false)
 
   const dts = await readFile(join(LIB, 'types.d.ts'), 'utf8')
   const herTypes = extractUnionLiterals(dts, 'HerEventType')
