@@ -54,6 +54,15 @@ test('classOf：自家写死，设置覆盖，外部默认 effect', () => {
   assert.equal(classOf('novel_read', { proactive: { toolClasses: { novel_read: '乱写' } } }), 'effect')
 })
 
+test('her_make 是产出、her_work 是只读：不占消耗额度（2026-11-23）', () => {
+  assert.equal(classOf('her_make'), 'produce')
+  assert.equal(classOf('her_work'), 'self')
+  const now = Date.now()
+  const spent = [0, 1].map((i) => did({ cls: 'consume', tool: 'bili_watch', key: `bili_watch:BV${i}`, ts: now - HOUR }))
+  const r = checkDoing({ name: 'her_make', args: { title: '盆花的空位' }, events: spent, now, config: { proactive: { consumePerDay: 1 } } })
+  assert.equal(r.ok, true)
+})
+
 test('itemKey：优先具体对象，路径里的冒号不截断', () => {
   assert.equal(itemKey('bili_look', { bvid: 'BV1xx' }), 'bili_look:BV1xx')
   assert.equal(itemKey('read_file', { path: 'C:\\a\\b.txt' }), 'read_file:C:\\a\\b.txt')
