@@ -270,3 +270,38 @@ test('体检：只有主人名下判断时，另见人数是 0 而不是 1', () 
   assert.equal(r.people.judged, 0)
 })
 
+
+// 1.1.0 收尾（用户 m04951）：人判断会不会把世界判断挤没。
+// 「你自己说过的话」那一段只摆关于世界的判断，关于人的摆在身份段——所以两边都报数，
+// 谁被挤了才看得见。一条判断都没有时这几个数不给，界面不摆零。
+
+test('体检：判断分给谁——写到人身上的和关于世界的分开数', () => {
+  const events = [
+    said('老王总是半夜回话。', 5, { who: { id: 'bili:1', name: '老王' } }),
+    said('他记性比我想的好。', 4, { who: { id: 'owner', name: '' } }),
+    said('我不喜欢人多的地方。', 3),
+    said('熬夜也没什么不好。', 2),
+  ]
+  const r = examine(events)
+  assert.deepEqual(r.beliefView, { person: 2, world: 2, shown: 2, max: 3 })
+})
+
+test('体检：关于世界的判断多过上限时，报出这一段实际能摆几条', () => {
+  const events = [
+    said('我不喜欢人多的地方。', 8),
+    said('熬夜也没什么不好。', 7),
+    said('安静的地方更好。', 6),
+    said('写东西得先坐着。', 5),
+  ]
+  const r = examine(events)
+  assert.equal(r.beliefView.world, 4)
+  assert.equal(r.beliefView.shown, r.beliefView.max)
+  assert.equal(r.beliefView.person, 0)
+})
+
+test('体检：一条判断都没有时，不给「判断分给谁」这几个数', () => {
+  const r = examine([
+    { id: 'm1', v: 1, ts: at(1), day: 1, stage: 1, type: 'meta', source: 'system', text: 'seen:2026-10-01T00:00:00.000Z' },
+  ])
+  assert.equal(r.beliefView, undefined)
+})
