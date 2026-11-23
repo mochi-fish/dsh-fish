@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { readObserveSourceSync } from '../test-support/observe-source.mjs'
 import { RULES, LAYERS, promptBans, rulesByLayer, ruleById } from '../lib/rules.js'
 import { personaLine, buildSections, HARD_BANS } from '../lib/persona.js'
 import { appendEvent, readEvents } from '../lib/store.js'
@@ -257,8 +258,12 @@ test('rules.holdDays 真的接上了：一张申请挂几天算搁置跟着设�
 
 test('pendingOffer 的每个调用点都把 config 算出来的 limits 传进去', () => {
   // 只接一处的话，调度器以为还在等、会话里的卡却答不上（或者反过来）。
-  for (const f of ['scheduler.js', 'grant.js', 'cardanswer.js', 'observe-state.js', 'observe-config.js']) {
-    const src = readFileSync(new URL(`../lib/${f}`, import.meta.url), 'utf8')
+  // 观测台拆成了好几个 observe*.js，按整体扫：以后哪个子模块新加一处调用也逃不掉。
+  const sources = [
+    ...['scheduler.js', 'grant.js', 'cardanswer.js'].map((f) => [f, readFileSync(new URL(`../lib/${f}`, import.meta.url), 'utf8')]),
+    ['observe*.js', readObserveSourceSync()],
+  ]
+  for (const [f, src] of sources) {
     const calls = src.match(/pendingOffer\([^\n]*/g) || []
     assert.ok(calls.length > 0, `${f} 里应该有 pendingOffer 的调用`)
     for (const c of calls) assert.ok(c.includes('offerLimits('), `${f}：${c}`)

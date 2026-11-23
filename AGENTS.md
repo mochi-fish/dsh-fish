@@ -13,7 +13,8 @@
 - 原因不只是「省事」：DSH 插件多挂一个包，就可能把宿主正在用的旧核心包拖进依赖树，装完重启后宿主直接崩（本机踩过，见 `README.md` 里 tool.js 那段 `unsupported JSON schema` 的记录）。
 - 需要 HTTP → 用内置 `fetch`。需要签名 → 用内置 `crypto`。需要解压 → 用内置 `zlib`。需要子进程 → 用内置 `child_process`。**这些全都有，没有必须装包才能干的事。**
 - 测试只用 `node:test` + `node:assert`，不引测试框架。
-- 类型检查走零构建的 JSDoc + `jsconfig.json` + `lib/types.d.ts`（核心中枢开了 `// @ts-check`，CI 临时拉 `tsc --noEmit` 校验，不进 `devDependencies`）；前端 `lib/client.js` 按页签分片在 `lib/client/*.js`，改完分片跑零依赖的 `node scripts/build-client.mjs` 重产（`test/architecture.test.mjs` 与 CI `--check` 守着逐字节一致）。
+- 类型检查走零构建的 JSDoc + `jsconfig.json` + `lib/types.d.ts`（核心中枢开了 `// @ts-check`，CI 临时拉 `tsc --noEmit` 校验，TypeScript 5.8 与 6.0 两个版本都跑，不进 `devDependencies`）。`jsconfig.json` 只开 `ES2023`、不借 DOM lib；用到的 Node 全局缺声明时补进 `lib/env.d.ts`，别把 DOM 加回去（DOM 的 `setTimeout` 返回 `number`，会把 `.unref?.()` 判成错）。
+- 前端 `lib/client.js` 按页签分片在 `lib/client/*.js`，改完分片跑零依赖的 `node scripts/build-client.mjs` 重产（`test/architecture.test.mjs` 与 CI `--check` 守着逐字节一致）。分片和两个拼接脚本不进 npm 包，包里只带拼好的 `lib/client.js`（`.github/pack-check.mjs` 守着）。
 
 ## 2. 不许加人格设置界面
 
@@ -49,14 +50,14 @@
 
 ## 4. 文案有守门词，改之前先看测试
 
-面向用户的字符串（`lib/client.js` 里的界面文案）有三条硬规矩，全部有测试盯着；另外还有一条管**别的方向**的文本，别混起来：
+面向用户的字符串（界面文案，写在 `lib/client/*.js` 分片里，拼成 `lib/client.js`；下面的测试扫的是拼好的 `lib/client.js`）有三条硬规矩，全部有测试盯着；另外还有一条管**别的方向**的文本，别混起来：
 
 - **不出现男字旁的「他」**，统一写「你」。守着它的是 `test/p5.test.mjs` 里那个逐字扫 `lib/client.js` 字符串字面量的测试（注释不算；不要引用行号，会漂）。例外只有 `其他/其它` 这类词素。她自己的话、引用别人的话不受此限。
 - **给她看的文本里指主人的那个字，写 `{T}`，不要写死「他」（0.9.9 起，issue #127）。** 模板句统一写 `{T}`（`lib/pronoun.js` 的 `OWNER_SLOT`），出口过 `fillOwner(text, pronoun)` 填成 `他` / `她` / `TA`（默认 `他`）；`lib/persona.js` 的 `assemble()` 收尾、`lib/use.js` 的 `description` / `brief` 都已经填过一遍。**上面那条管界面，这条管她读到的文本，两条不冲突**：界面文案永远只写「你」，从不出现第三人称。解析用的正则里写死「他」不算违规（`lib/derive.js` 的 `nameSayRe('称呼你|叫你|称呼他…')` 那类是在认字，不是在称呼）。`test/pronoun.test.mjs` 守着「只认 他/她/TA」「`fillOwner` 只填占位符、不按字替换」。
 - **统一「四个阶段」与「三道瓶颈」**，**禁**「四道门 / 三道门」。`test/principle-zoom.test.mjs` 明确断言 `三道门`/`四道门` 不出现。
 - **立场不是第五关。** 措辞只能是「四个阶段完成之后才会开始有立场」。图上不许再退回「底部一行小字」的表达——立场是独立区块，由 `test/principle.test.mjs`（viewBox 1160 + 含「立场清单」）与 `test/stance.test.mjs`（旧的「纵向长「立场清单」」写法必须不存在）共同守着。
 
-改界面文案时**先跑那三条**再改别的，否则会来回返工。
+改界面文案时**先跑那三条**再改别的，否则会来回返工。改的是分片，跑测试之前先 `node scripts/build-client.mjs` 重产一遍——不然测试扫到的还是旧的 `lib/client.js`。
 
 ## 5. `events.jsonl` 只能追加
 
@@ -305,7 +306,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 
 想给自己养的那条鱼加一件只属于你的工具（镜子、专属查询、私人接口），**不要往这个仓库里加 `plugin/`、`user-plugins/`、`extras/` 这类目录**，也不要往 `lib/` 里塞。2026-11-13 收到过这样的 PR（#134），没合并，原因就是下面三条。
 
-- **`lib/` 跟着 npm 包走，升级时整包替换。** 仓库里另开目录也一样：`package.json` 的 `files` 是白名单（`LICENSE`、`lib`、`media`、`cordis.patch.yml`、`README`、`AGENTS`、`CHANGELOG`、`RELEASE-NOTES-*`、`scripts`、`tools`），私人目录进不了 npm 包；硬塞进仓库又会被 `git reset --hard` 还原；还会被 `node --test` 算进我们的绿线，基线从此依赖别人的代码和平台。
+- **`lib/` 跟着 npm 包走，升级时整包替换。** 仓库里另开目录也一样：`package.json` 的 `files` 是白名单（`LICENSE`、`lib`、`media`、`cordis.patch.yml`、`README`、`AGENTS`、`CHANGELOG`、`RELEASE-NOTES-*`、`docs`、`scripts`、`tools`，其中 `lib/client/` 分片和两个拼接脚本排除在外），私人目录进不了 npm 包；硬塞进仓库又会被 `git reset --hard` 还原；还会被 `node --test` 算进我们的绿线，基线从此依赖别人的代码和平台。
 - **正确位置是本仓库外面**：一个普通 DSH 插件（`inject = ['tools']` + `ctx.tools.register()`），用 `dsh plugin --profile <profile> add "link:<那个目录>"` 装进来，再把工具名写进 `config.tools.allow`。面向用户的说明在 `README.md` 的「想给她加一件只属于你的工具」。
 - **放行才念，不念就不会用**：白名单只做加法（§7.4），放行后 `toolBrief()` 会把它念进身份文档；不放行她既调不到，也不知道自己有这只手。
 - **要推荐给别人**：写进 `README.md` 那一节，链接到对方仓库，代码留在对方那儿。不要在 `files` 白名单之外偷偷带一份。
