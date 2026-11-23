@@ -286,7 +286,7 @@ test/       221 个测试文件，node --test 直接跑，全量 3217 条
 media/      README 与设置页用到的图
 scripts/    安装迁移与前端拼接脚本（fix-legacy-link.mjs、build-client.mjs）
 tools/      命令行自检（check-install.mjs，零依赖，插件没加载也能跑）
-docs/       面向使用者的补充说明（素材契约、插件约定、排查手册）
+docs/       面向使用者的补充说明（素材契约、插件约定、认人判据、排查手册）
 ```
 
 在仓库根目录直接运行内置测试（零外部依赖，工具注册直接走标准 JSON Schema）：

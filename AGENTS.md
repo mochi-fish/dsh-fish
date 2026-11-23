@@ -103,6 +103,8 @@ CI 也跑同一套（`.github/workflows/test.yml`，Node 20 / 22 / 24 各跑一�
 - **人格分裂**：每条 DSH 会话是独立 agent，各自注入一份身份、历史互不可见。同一份 `events.jsonl` 被两条会话读，用户在两边看到的是"两个人"。
 - **双实例抢占**：桥自起的进程与桌面版共用一个数据目录，`instance.json` 心跳一判活，后到的那个被判成只读房客（`bootstrapHome` 返回 `blocked:true`，不建会话）。
 
+1.0.9 起，桥自建的会话**不会再像换了一条鱼**：插件会在第一封外面来的信到达时把它认下来，补挂身份段与工具面。判据见 §10 与 `docs/认人判据.md`。但这只是兜底——HTTP 投递仍然优先。
+
 所以桥应该**只发 HTTP**，完全不碰 DSH 进程与 `instance.json`：
 
 ```
@@ -310,6 +312,31 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - **放行才念，不念就不会用**：白名单只做加法（§7.4），放行后 `toolBrief()` 会把它念进身份文档；不放行她既调不到，也不知道自己有这只手。
 - **要推荐给别人**：写进 `README.md` 那一节，链接到对方仓库，代码留在对方那儿。不要在 `files` 白名单之外偷偷带一份。
 - **想让她能引你工具里的原话**：按 §7.5 的素材契约返回，不要另开通用口。不按契约返回也能用，只是读进来的东西不会被记住、不能引原句、不进八股统计。
+
+## 10. 认人判据：哪条会话算她
+
+完整版在 `docs/认人判据.md`，这里只留动手改代码时必须记住的部分。
+
+**一句话：认会话 id，不认工作目录。** 目录只决定「这条 id 不在册的会话，要不要等一封外面来的信」。
+
+两条判据分工不同：
+
+- `lib/restrict.js` 的 `isHerAgent()`（别名 `isHerHome`）→ 身份段挂不挂 + 工具面收不收窄；
+- 同文件的 `isHerAnywhere()` → 只决定身份段挂不挂（出门那一路：挂身份、**不收窄**）。
+
+**会被认的**：插件自己建会话时（`asHerSession()` 窗口，`lib/home.js` / `lib/say.js`）、重启时从 `home.json` / `channels.json` 读回、认回旧窗口、以及桥自建会话在第一封外面来的信之后认领。
+
+**桥来信的判据**（`lib/claim.js` 的 `isBridgeMessage()`）：`kind === 'user'` **且**（`scene === 'group'` / `guest === true` / 判成 `human` 但没有 `clientTimeZone`）。`kind === 'user'` 是硬门槛：宿主 `prompt()` 空正文时写 `retry`，`classifyMessage` 兜底又会把不认识的 kind 当人——放宽这一条，他屋里普通会话点一次「重试」就会被认成她。
+
+**不会被认的**：他自己开在她屋里的会话（本地字一定带 `clientTimeZone`）、任何不在她屋里的会话、走 `/say` 或复用 `sessionId` 的桥、插件自己的消息（`source.fish === 'note'` / `PLUGIN_RPC`）、宿主上下文（无 `source`）、自起 kind 的来信。
+
+**三条改代码时的禁令**：
+
+1. 不要退回「按 cwd 认人」——1.0.6 的外部误伤就是这么来的。
+2. 不要放宽 `isBridgeMessage()` 的 `kind`。
+3. 认领是补挂，不是重开；`attachIdentity` 惰性读，装备最多晚一轮。
+
+**已知边界**：老宿主不给会话 id 时，收窄会退回 cwd、身份段却没有 cwd 兜底（永远不挂）；插件热重载时已有 agent 不会再发 `agent/created`，桥来信也认领不了。整机重启不受影响。
 
 ---
 
