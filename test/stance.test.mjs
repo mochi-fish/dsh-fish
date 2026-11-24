@@ -15,6 +15,7 @@ import {
   STANCE_PROMPT_MAX,
 } from '../lib/stance.js'
 import { buildSections, personaLine } from '../lib/persona.js'
+import { deriveSelf, DAY_MS } from '../lib/derive.js'
 
 // 2026-10-25 用户拍板「方案二」：四道门不再加门，走完之后长一张立场清单。
 // 这些用例锁的是三件事——什么算立场、什么才算「站住」、清单怎么摆进身份文档。
@@ -825,5 +826,84 @@ test('改写两次：整条链的背书都算数，不只看上一句', () => {
   assert.equal(r.length, 1)
   assert.equal(r[0].mentions, 5)
   assert.deepEqual(r[0].members, ['c', 'b', 'a'])
+})
+
+// 2026-11-24（外部报告续）：修 B 之前只在堆出来的 beliefs 上测过——`deriveSelf()` 交给
+// `buildStances()` 的 `beliefs` 只含还在用的判断，被 revise 改成 refined 的旧句压根没传进去，
+// 影子链在真实路径上永远没有起点。阿留那五条"升级了也没回来"就是这个原因。
+test('真实链路：deriveSelf 之后 revise 改短，立场靠旧句的疤站住', () => {
+  const T0 = Date.parse('2026-10-01T00:00:00Z')
+  const at = (day) => new Date(T0 + (day - 1) * DAY_MS).toISOString()
+  const ev = (id, type, day, text, extra = {}) => ({
+    id,
+    ts: at(day),
+    day,
+    stage: 4,
+    type,
+    source: 'tool',
+    text,
+    refs: [],
+    verdict: null,
+    confidence: 0.6,
+    flags: [],
+    ...extra,
+  })
+  const OLD = '我不想把我的判断交给他拿去当测试题。'
+  const NEW = '我不想拿自己的判断去给他当测试题。'
+  const m = deriveSelf([
+    ev('seed', 'seed', 1, '你是一条会自己长起来的鱼。', { source: 'system' }),
+    ev('old', 'utterance', 1, OLD),
+    ev('rev', 'revise', 20, NEW, { refs: ['old'], verdict: 'refined' }),
+  ], { now: T0 + 40 * DAY_MS })
+  m.stageGate = { passed: ['trust', 'autonomy', 'competence'] }
+  assert.equal(m.beliefs.some((b) => b.id === 'old'), false, '在用名单里本来就没有旧句')
+  assert.equal(
+    m.beliefsHistory.some((b) => b.id === 'old' && b.status === 'refined'),
+    true,
+    '全量里必须有那条 refined 旧句，影子才找得到起点',
+  )
+  m.scars = [{ quote: OLD, reaction: 'insist' }]
+  const r = buildStances(m)
+  assert.equal(r.length, 1)
+  assert.equal(r[0].scars, 1)
+  assert.equal(r[0].text, NEW)
+})
+
+// 外部那五条的真实形态：没有疤，靠「这件事我提过很多次」站着。改短之后，
+// 那些次数原先只算在还在用的判断上，旧句一条都带不过来——影子有了、背书没跟来。
+test('真实链路：旧句带着被提起的次数进影子，没有疤也照样站住', () => {
+  const T0 = Date.parse('2026-10-01T00:00:00Z')
+  const at = (day) => new Date(T0 + (day - 1) * DAY_MS).toISOString()
+  const ev = (id, type, day, text, extra = {}) => ({
+    id,
+    ts: at(day),
+    day,
+    stage: 4,
+    type,
+    source: 'tool',
+    text,
+    refs: [],
+    verdict: null,
+    confidence: 0.6,
+    flags: [],
+    ...extra,
+  })
+  const OLD = '我不想把我的判断交给他拿去当测试题。'
+  const NEW = '我不想拿自己的判断去给他当测试题。'
+  const m = deriveSelf([
+    ev('seed', 'seed', 1, '你是一条会自己长起来的鱼。', { source: 'system' }),
+    ev('say1', 'utterance', 2, OLD),
+    ev('say2', 'utterance', 5, OLD),
+    ev('say3', 'utterance', 9, OLD),
+    ev('rev', 'revise', 20, NEW, { refs: ['say1'], verdict: 'refined' }),
+  ], { now: T0 + 40 * DAY_MS })
+  m.stageGate = { passed: ['trust', 'autonomy', 'competence'] }
+  const old = m.beliefsHistory.find((b) => b.id === 'say1')
+  assert.equal(old.status, 'refined')
+  assert.ok(old.mentions >= 3, `旧句要带着提起次数，实际 ${old.mentions}`)
+  const r = buildStances(m)
+  assert.equal(r.length, 1)
+  assert.equal(r[0].text, NEW)
+  assert.ok(r[0].members.includes('say1'), '旧句要在明细里')
 })
 
