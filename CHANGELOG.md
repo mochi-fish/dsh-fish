@@ -1,6 +1,6 @@
 ## 1.1.1 — 未发布
 
-这一版收三处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；`tools/check-install.mjs` 自己认不出装了鱼；成长天数不再写成「31 / 30」。
+这一版收的几处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；`tools/check-install.mjs` 自己认不出装了鱼；成长天数不再写成「31 / 30」。
 
 - **「外面那把尺子」量不到任何东西——它认的是改名前的裸名（2026-11-24，外部报告）。** 真机：`node tools/check-install.mjs` 一律退出码 2，说「没找到装过 dsh-fish 的 profile」，而这台机器上明明装着。根子在 `readDep()` 把依赖键写死成 `dsh-fish`：0.8.10 就改名成 `@ssamurias/dsh-fish` 了，profile 里记的是新名，于是每个 profile 都被判成「没装过」。**同一个错假设还藏着第二处**：副本路径按短名拼成 `node_modules/dsh-fish`，带 scope 的包其实在 `node_modules/@ssamurias/dsh-fish`——就算依赖名认对，它也会指着一个不存在的目录，然后报「副本空的」。
   改法：包名不再手写，`ownName()` 直接读脚本旁边的 `package.json`（读不到才回落到常量），`pkgNames()` 再带上裸名 `dsh-fish` 给 0.8.9 之前的老 profile；`readDepEntry()` 返回「命中的是哪条依赖键 + 写法」，副本路径改成按那个键拼，所以新旧两种装法都指得对。
@@ -16,6 +16,11 @@
   改法（`lib/claim.js` 的 `isBridgeMessage()`）：除原来的 `kind === 'user'` + 群聊 / 外客 / 无 `clientTimeZone` 的 `human` 之外，再认两种——① `source.bridge === true`（给桥留的显式契约）；② `kind` 是 `plugin:<插件名>` 且不是 `plugin:dsh-fish`、不带 `fish` 标记（直接 `followup` 的桥走这条）。两种都排除 `retry` 与空 kind，1.0.9 堵上的「重试后门」不会重新打开。取舍：别的插件往一条「建在她屋里、还没认领」的会话里投消息也会触发认领；这比每次换房都掉一次人设轻。
 - **重启之后桥的会话 id 全丢（2026-11-24，同一份报告）。** `lib/channels.js:177` 写的是 `{ version: 1, list: [...] }`，`seedHerSessions()` 只认顶层数组与 `.channels`，读回来是空表——桥的会话在重启后再也认不回来。现在三种形状都认（顶层数组 / `.list` / `.channels`），回归测试各写一遍。
 - 配套：`docs/认人判据.md` 的「桥自建的会话」改成三种来信（显式 `bridge` / `plugin:*` / `kind:'user'`），并把取舍写清；`AGENTS.md` §10 同步；新增/补 2 条测试（`test/claim.test.mjs` 的插件中转全链路、`test/restrict.test.mjs` 的三种 `channels.json` 形状），全量 **3313 pass / 0 fail**（229 个测试文件）。
+
+- **桥不建在她家里，也不用裸跑（2026-11-25，用户 m03165）。** 市面上的桥（`qq-bridge`、`qq-dsh-bridge` 等）基本都自建会话、目录各挑各的，1.0.9 认的是「cwd 正好是 `~/.dsh-fish/home`」，于是换个目录又掉人设。这一版给两条入口，**默认都关**：
+  - `config.bridge.dirs`：列桥建会话的目录（最多 20 条，路径归一后比较）。会话落在其中任意一个下面、且收到第一封桥来信时，走和「建在她家里」同样的三步认领；来信判据一个字没松。
+  - `POST /claim`（`bridge.claim: true` 才开）：桥显式点名一条会话，头里带 `x-fish-token`。只认**创建后 10 分钟内**、agent 还在内存里的会话；响应 `ok / already / not_live / too_old / not_waiting / unknown_session / refused`。认领同时挂身份段与收窄工具面，不留「半挂」。配 `POST /release` 撤销（摘台账、摘身份；工具面收不回来，要连工具面一起恢复得重开会话）。
+  安全上沿用同一个本机投递口的既有边界（绑 `127.0.0.1`、Host 校验、拒浏览器），再加 token（`timingSafeEqual`）与 20 KB 请求体上限；认领记录落 `bridge.json`，最多 500 条，坏档当空。新增 `test/bridge-claim.test.mjs` 4 条（显式认领账、配置归一、按目录认领后挂身份并收窄、四类闸门拒绝），全量 **3323 pass / 0 fail**（230 个测试文件）；`docs/认人判据.md` §3.1 与 `AGENTS.md` §7.1 同步。
 
 - **她换过工作目录之后，写入口不再集体失灵（2026-11-24，issue #179）。** 真机：会话出生在 `/root/workspace`，用户用宿主的 `working_directory` 切到 `/root/.dsh-fish`，之后 `her_note` / `growth_commit` / B 站落盘全回「这条调用来自另一个家」——`lib/tenant.js` 的 `callerOf()` 只读 `session.header.cwd`（出生目录），没读宿主 `workingDirectory` 投影里的**当前**目录。两处一起改：① 当前目录优先问宿主的 `workingDirectory.get(session)`（拿不到才回落出生目录）；② 按会话 id 认人——`isHerSession` 命中时 cwd 在哪都放行，因为「她换目录」不等于「她换了个人」。`tenancy` 顺手带上 `ctx` 与 `isHerSession`，`look.js` / `sub.js` / `watch.js` 的 `tenancyOf` 与 `use.js` 的记账路径一并透传；拒绝日志多记一行 `born=`，下次一眼能看出「是出生地还是现居地判错了」。新增 6 条测试（`test/tenant-live-cwd.test.mjs`），全量 **3311 pass / 0 fail**（229 个测试文件）。
 
@@ -4436,3 +4441,4 @@ if (away.kind) { log('away', awayLine(away)); return }
 - **设置页**（设置 → 大肥鱼）：状态 / 成长 / 住所 / 上网 / 记忆 / 插件 / 原理 / 数据 八个 tab，全部是环境参数。
 - **观测台不直连浏览器**：`/dsh-fish` 被 App 的登录栅栏守着，浏览器敲只会 401。
 - 零运行时依赖，零构建步骤，110 个文件、22712 行。
+

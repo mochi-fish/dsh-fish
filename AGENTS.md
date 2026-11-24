@@ -73,7 +73,7 @@
 node --test
 ```
 
-当前基线 **3319 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
+当前基线 **3323 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
 
 按环境挑跑法：
 
@@ -104,6 +104,8 @@ CI 也跑同一套（`.github/workflows/test.yml`，Node 20 / 22 / 24 各跑一�
 - **双实例抢占**：桥自起的进程与桌面版共用一个数据目录，`instance.json` 心跳一判活，后到的那个被判成只读房客（`bootstrapHome` 返回 `blocked:true`，不建会话）。
 
 1.0.9 起，桥自建的会话**不会再像换了一条鱼**：插件会在第一封外面来的信到达时把它认下来，补挂身份段与工具面。判据见 §10 与 `docs/认人判据.md`。但这只是兜底——HTTP 投递仍然优先。
+
+1.1.1 起给不把会话建在 `~/.dsh-fish/home` 的桥两条入口（都默认关）：`config.bridge.dirs` 列出它们的建会话目录（命中目录 + 第一封桥来信才认领，来信判据不放松），以及 `POST /claim`（需 `bridge.claim: true` 与 `x-fish-token`，只认创建后 10 分钟内的活跃会话，可用 `POST /release` 撤销）。这两条只是「认人」，不让桥绕开这里的投递约定。
 
 所以桥应该**只发 HTTP**，完全不碰 DSH 进程与 `instance.json`：
 
@@ -347,7 +349,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test` 3319 全绿
+- [ ] `node --test` 3323 全绿
 - [ ] 改了 `lib/client/*.js` 或 `lib/session-pressure-formulas.js` 的话，跑过 `node scripts/build-client.mjs` 重产 `lib/client.js`
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明
@@ -365,4 +367,5 @@ qq_send_message, qq_get_unread_messages, qq_reply
 2. **`cordis.patch.yml` 的 `id` 保持短名 `dsh-fish`、`name` 写全名**（与 `@goodandready/dsh-voice` 一致）。`id` 变了会连带 client bundle 的 URL 对不上；`name` 写短名则 import 失败、直接崩在 web boot。
 3. **别删升级脚本里的 normalize 那一步**（`lib/selfupdate.js` 的 `normalizeScript()`，安装脚本第 5/6 步）。0.8.9 之前装的 profile 里旧键还在，不清掉就会同时有两条鱼、两条 insert 撞一个 id，启动报 `duplicate factory registration`。
 4. **`scripts/fix-legacy-link.mjs` 必须三种依赖写法都认**：源码目录 `link:`、`file:` 装的 tgz、`@ssamurias/dsh-fish@x.y.z` 版本号。版本号那条是 issue #43 的根因——照更新说明用 `dsh plugin add` 升上来的人，profile 里留下的就是版本号；脚本过去只认前两种，一句「没有老依赖，跳过」退出 0，旧键与旧 `bundles` 条目原封不动。改它之前先跑 `test/fix-legacy-link.test.mjs`（`migrateOne()` 是给它直接测的）。
+
 
