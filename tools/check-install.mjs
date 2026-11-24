@@ -15,8 +15,27 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, posix, resolve } from 'node:path'
 
-export const PKG_NAME = 'dsh-fish'
+export const PKG_NAME = '@ssamurias/dsh-fish'
+// 改名（0.8.10）之前的裸名。老 profile 里留下的还是它，认它只为把「装的是哪条鱼」查清楚。
+const LEGACY_NAMES = ['dsh-fish']
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies']
+
+/** 这个脚本自己所属的包名：跟着 package.json 走，以后再改名不用回来改这里。 */
+export function ownName() {
+  try {
+    const name = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))?.name
+    if (typeof name === 'string' && name.trim()) return name.trim()
+  } catch {
+    // 落在只拷贝了 tools/ 的地方时读不到，用默认值
+  }
+  return PKG_NAME
+}
+
+/** 认哪些依赖键：自己的名字优先，再认改名前的裸名。 */
+export function pkgNames() {
+  const own = ownName()
+  return LEGACY_NAMES.includes(own) ? [own] : [own, ...LEGACY_NAMES]
+}
 
 /** 形如 `D:/x`、`D:\x`、`\\server\share` 的 Windows 绝对路径 */
 function isWinAbs(p) {
@@ -48,19 +67,31 @@ export function parseFileDep(spec, profileDir) {
   return resolve(profileDir, raw)
 }
 
-/** 从 package.json 文本里取 dsh-fish 的依赖写法；坏 JSON 返回 null。 */
-export function readDep(text) {
+/**
+ * 从 package.json 文本里找出这个包是哪条依赖。
+ * 返回 {name, dep}：name 是命中的依赖键（决定 node_modules 里的副本在哪），dep 是写法。
+ * 坏 JSON 返回 null；没装这个包返回 {name:'', dep:''}。
+ */
+export function readDepEntry(text) {
   let pkg
   try {
     pkg = JSON.parse(text)
   } catch {
     return null
   }
-  for (const f of DEP_FIELDS) {
-    const v = pkg?.[f]?.[PKG_NAME]
-    if (typeof v === 'string') return v
+  for (const name of pkgNames()) {
+    for (const f of DEP_FIELDS) {
+      const v = pkg?.[f]?.[name]
+      if (typeof v === 'string') return { name, dep: v }
+    }
   }
-  return ''
+  return { name: '', dep: '' }
+}
+
+/** 从 package.json 文本里取依赖写法；坏 JSON 返回 null，没装返回空串。 */
+export function readDep(text) {
+  const entry = readDepEntry(text)
+  return entry === null ? null : entry.dep
 }
 
 /** 读一个目录里 package.json 的版本号；读不到返回 ''。 */
@@ -95,16 +126,17 @@ export function countJs(dir) {
 
 /**
  * 查一个 profile。
- * 返回 {profile, source, sourceVersion, copy, copyVersion, sourceJs, copyJs, verdict, why}
- * verdict: ok | empty-copy | stale-copy | no-dep | no-profile
+ * 返回 {profile, pkgName, source, sourceVersion, copy, copyVersion, sourceJs, copyJs, verdict, why}
+ * verdict: ok | linked | empty-copy | stale-copy | no-dep | no-profile
  */
 export function inspectProfile(profileDir) {
   const pkgFile = join(profileDir, 'package.json')
   const out = {
     profile: profileDir,
+    pkgName: '',
     source: '',
     sourceVersion: '',
-    copy: join(profileDir, 'node_modules', PKG_NAME),
+    copy: '',
     copyVersion: '',
     sourceJs: 0,
     copyJs: 0,
@@ -122,19 +154,25 @@ export function inspectProfile(profileDir) {
     out.why = `package.json 读不了：${err?.message ?? err}`
     return out
   }
-  const dep = readDep(text)
-  if (dep === null) {
+  const entry = readDepEntry(text)
+  if (entry === null) {
     out.why = 'package.json 不是合法 JSON'
     return out
   }
-  if (!dep) {
+  if (!entry.dep) {
     out.verdict = 'no-dep'
-    out.why = 'profile 的 dependencies 里没有 dsh-fish'
+    out.why = `profile 的 dependencies 里没有 ${pkgNames().join(' 或 ')}`
     return out
   }
+  const dep = entry.dep
+  out.pkgName = entry.name
+  // 副本按**命中的依赖键**拼：带 scope 的包落在 node_modules/@scope/name，
+  // 不能拿短名去猜（0.8.10 改名后这里一直指着一个不存在的路径）。
+  out.copy = join(profileDir, 'node_modules', entry.name)
   out.verdict = 'no-dep'
   out.why = `依赖写法是 ${dep}`
   if (dep.startsWith('link:')) {
+    out.verdict = 'linked'
     out.why = `依赖写法是 ${dep}（软链安装，没有副本，不需要比对）`
     return out
   }
@@ -151,10 +189,10 @@ export function inspectProfile(profileDir) {
 
   if (!existsSync(out.copy)) {
     out.verdict = 'empty-copy'
-    out.why = 'node_modules 里没有 dsh-fish：pnpm 根本没装成功'
+    out.why = `node_modules 里没有 ${entry.name}：pnpm 根本没装成功`
   } else if (!out.copyVersion) {
     out.verdict = 'empty-copy'
-    out.why = 'node_modules/dsh-fish 里没有能读的 package.json：副本是空的或只落了一半'
+    out.why = `node_modules/${entry.name} 里没有能读的 package.json：副本是空的或只落了一半`
   } else if (out.copyJs < out.sourceJs * 0.8) {
     out.verdict = 'empty-copy'
     out.why = `副本只有 ${out.copyJs} 个 js 文件，源目录有 ${out.sourceJs} 个：装了一半`
@@ -168,7 +206,7 @@ export function inspectProfile(profileDir) {
   return out
 }
 
-/** 找出一个 DSH_HOME 下所有装过 dsh-fish 的 profile。 */
+/** 找出一个 DSH_HOME 下所有装过这个包的 profile。 */
 export function findProfiles(home = join(homedir(), '.dsh')) {
   const root = join(home, 'profiles')
   if (!existsSync(root)) return []
@@ -181,14 +219,15 @@ export function findProfiles(home = join(homedir(), '.dsh')) {
       continue
     }
     if (!existsSync(join(dir, 'package.json'))) continue
-    const dep = readDep(readFileSync(join(dir, 'package.json'), 'utf8'))
-    if (dep) out.push(dir)
+    const entry = readDepEntry(readFileSync(join(dir, 'package.json'), 'utf8'))
+    if (entry?.dep) out.push(dir)
   }
   return out
 }
 
 const LABEL = {
   ok: '正常',
+  linked: '软链安装（不需要比对副本）',
   'stale-copy': '装的是旧副本',
   'empty-copy': '副本空的/装了一半',
   'no-dep': '不是这套装法',
@@ -202,16 +241,17 @@ export function main(argv = process.argv.slice(2)) {
   }
   const home = arg('home', join(homedir(), '.dsh'))
   const only = arg('profile', '').toLowerCase()
+  const names = pkgNames().join(' 或 ')
   let dirs = findProfiles(home)
   if (only) {
     dirs = dirs.filter((d) => d.split(/[\\/]/).pop().toLowerCase() === only)
     if (!dirs.length) {
-      console.error(`在 ${home} 里没找到 profile「${only}」，或者它没装 dsh-fish`)
+      console.error(`在 ${home} 里没找到 profile「${only}」，或者它没装 ${names}`)
       return 2
     }
   }
   if (!dirs.length) {
-    console.error(`在 ${home}\\profiles 里没找到任何装过 dsh-fish 的 profile`)
+    console.error(`在 ${home}\\profiles 里没找到任何装过 ${names} 的 profile`)
     return 2
   }
 
@@ -221,11 +261,12 @@ export function main(argv = process.argv.slice(2)) {
     const name = dir.split(/[\\/]/).pop()
     console.log(`\n[${name}] ${LABEL[r.verdict] ?? r.verdict}`)
     if (r.source) console.log(`  源目录  ${r.source}`)
-    if (r.copy) console.log(`  实际跑  ${r.copy}`)
+    if (r.copy && existsSync(r.copy)) console.log(`  实际跑  ${r.copy}`)
     console.log(`  说明    ${r.why}`)
     if (r.verdict === 'empty-copy' || r.verdict === 'stale-copy') {
       bad += 1
-      console.log('  修法    关掉 DSH → 在 profile 目录里 pnpm install --force（或删掉 node_modules/dsh-fish）→ 再启动')
+      const rel = `node_modules/${r.pkgName || ownName()}`
+      console.log(`  修法    关掉 DSH → 在 profile 目录里 pnpm install --force（或删掉 ${rel}）→ 再启动`)
     }
   }
   console.log(bad ? '\n有问题：上面标出来的那几条按「修法」重装一次。' : '\n看着没问题。')

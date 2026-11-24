@@ -15,18 +15,18 @@ node tools/check-install.mjs --profile desktop
 
 ## 升级了却没变化？先看设置页顶上那张卡（0.8.0）
 
-profile 里写 `"dsh-fish": "file:D:/DSH/plugins-src/dsh-fish"` 时，pnpm 会往 `node_modules\dsh-fish` 落一份**独立副本**，而 DSH 加载的就是副本。只把新版本覆盖到源目录、然后重启——跑起来的还是旧代码，界面没有报错，日志也不会多一行（新代码压根没执行）。
+profile 里写 `"@ssamurias/dsh-fish": "file:D:/DSH/plugins-src/dsh-fish"` 时，pnpm 会往 `node_modules\@ssamurias\dsh-fish` 落一份**独立副本**，而 DSH 加载的就是副本。只把新版本覆盖到源目录、然后重启——跑起来的还是旧代码，界面没有报错，日志也不会多一行（新代码压根没执行）。0.8.9 之前装的 profile 里依赖键还是裸名 `dsh-fish`，那时的副本在 `node_modules\dsh-fish`；下面凡是这个路径的，老装法照旧，新装法换成 `node_modules\@ssamurias\dsh-fish`。
 
 0.8.0 起启动时会比一次：profile 里那条 `file:` 指向的目录版本 vs 正在跑的 `VERSION`。对不上就
 
-- 设置 → **数据** 页靠下的位置出现一张「升级没有真正装进去」的卡（在「导入」卡下面、最底下的重置按钮上面），写清两条修法：关掉 DSH 后 `pnpm install --force`，或者直接删掉 `node_modules\dsh-fish` 再启动；
+- 设置 → **数据** 页靠下的位置出现一张「升级没有真正装进去」的卡（在「导入」卡下面、最底下的重置按钮上面），写清两条修法：关掉 DSH 后 `pnpm install --force`，或者直接删掉 `node_modules\@ssamurias\dsh-fish`（老装法是 `node_modules\dsh-fish`）再启动；
 - 启动日志里留一行 warn，`/state.upgrade` 也带着 `{stale, older, running, source, sourcePath}`。
 
 只有 `link:` 安装、读不到源目录、`package.json` 坏了这几种情况会静默跳过，不影响启动。
-**还有一种它查不到的情况：副本是空的。** 如果 pnpm 装到一半失败，`node_modules\dsh-fish` 可能是个空目录（或只有零星几个文件）——这时插件根本没被执行，那张卡也不会出现（卡是插件自己画的）。判断方法很简单：看 `node_modules/dsh-fish\package.json` 在不在、版本号对不对：
+**还有一种它查不到的情况：副本是空的。** 如果 pnpm 装到一半失败，`node_modules\@ssamurias\dsh-fish` 可能是个空目录（或只有零星几个文件）——这时插件根本没被执行，那张卡也不会出现（卡是插件自己画的）。判断方法很简单：看 `node_modules/@ssamurias/dsh-fish\package.json` 在不在、版本号对不对：
 
 ```
-node -p "require('C:/Users/你/.dsh/profiles/desktop/node_modules/dsh-fish/package.json').version"
+node -p "require('C:/Users/你/.dsh/profiles/desktop/node_modules/@ssamurias/dsh-fish/package.json').version"
 ```
 
 路径换成你自己的 profile。读不到就是空的：重装一遍（`pnpm install --force`）再启动；**装的时候不要只看命令回显——要看退出码。**

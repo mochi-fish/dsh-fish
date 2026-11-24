@@ -1,6 +1,11 @@
 ## 1.1.1 — 未发布
 
-这一版只修一处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」。
+这一版收两处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；另外 `tools/check-install.mjs` 自己认不出装了鱼。
+
+- **「外面那把尺子」量不到任何东西——它认的是改名前的裸名（2026-11-24，外部报告）。** 真机：`node tools/check-install.mjs` 一律退出码 2，说「没找到装过 dsh-fish 的 profile」，而这台机器上明明装着。根子在 `readDep()` 把依赖键写死成 `dsh-fish`：0.8.10 就改名成 `@ssamurias/dsh-fish` 了，profile 里记的是新名，于是每个 profile 都被判成「没装过」。**同一个错假设还藏着第二处**：副本路径按短名拼成 `node_modules/dsh-fish`，带 scope 的包其实在 `node_modules/@ssamurias/dsh-fish`——就算依赖名认对，它也会指着一个不存在的目录，然后报「副本空的」。
+  改法：包名不再手写，`ownName()` 直接读脚本旁边的 `package.json`（读不到才回落到常量），`pkgNames()` 再带上裸名 `dsh-fish` 给 0.8.9 之前的老 profile；`readDepEntry()` 返回「命中的是哪条依赖键 + 写法」，副本路径改成按那个键拼，所以新旧两种装法都指得对。
+  顺带两处：`link:` 安装原来被归到「不是这套装法」，看着像出事了，现在单列一种结论「软链安装（不需要比对副本）」，退出码 0；「修法」那行写的是真实路径而不是 `node_modules/dsh-fish`。`docs/troubleshooting.md` 与 `lib/index.js` 的升级 warn 里同一批老路径一并改掉。
+- 修的是**尺子**：插件本身没坏，`ok / stale-copy / empty-copy` 那套比对逻辑一个字没动。**为什么旧测试全绿**：`test/installcheck.test.mjs` 的 fixture 全部按短名构造，错的假设同时写在被测量的对象和尺子上，于是 7 条测试一起把 bug 测成了绿。这一轮 fixture 换成真实 scoped 名，并补一条**这条 bug 本身的回归**——`findProfiles()` 在装着 `@ssamurias/dsh-fish` 的 profile 上必须找得到（原来的行为是返回空数组 → 退出码 2），另留一条裸名用例守住老装法。7 → 11 条。
 
 - **QQ 桥每换一次房就掉一次人设——这次认出「插件中转」这条路（2026-11-24，外部报告）。** 真机：`dsh-onebot-qq` 把私聊消息直接 `followup(createUserMessage({ source: { kind: 'plugin:dsh-onebot' } }))` 投进会话，没走宿主 `prompt()`；1.0.9 的桥来信判据要求 `kind === 'user'`，于是这条会话永远等不到「第一封外面来的信」，身份段一次都没挂上——她改用第三人称、思考漏进正文。老会话只是偶然收到过一条 `kind:'user'` 的来信才被认领，所以看起来「有时好有时坏」。
   改法（`lib/claim.js` 的 `isBridgeMessage()`）：除原来的 `kind === 'user'` + 群聊 / 外客 / 无 `clientTimeZone` 的 `human` 之外，再认两种——① `source.bridge === true`（给桥留的显式契约）；② `kind` 是 `plugin:<插件名>` 且不是 `plugin:dsh-fish`、不带 `fish` 标记（直接 `followup` 的桥走这条）。两种都排除 `retry` 与空 kind，1.0.9 堵上的「重试后门」不会重新打开。取舍：别的插件往一条「建在她屋里、还没认领」的会话里投消息也会触发认领；这比每次换房都掉一次人设轻。
