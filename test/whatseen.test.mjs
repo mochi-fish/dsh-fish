@@ -174,7 +174,7 @@ test('历史：看过画面的排在当天最前，且带 how=watch', () => {
   assert.equal(groups[0].date, DK)
   assert.equal(groups[0].items[0].bvid, B1)
   assert.equal(groups[0].items[0].how, 'watch')
-  assert.equal(groups[0].items[1].how, 'glance')
+  assert.equal(groups[0].items[1].how, 'browse', '自动逛翻到的单独一档')
 })
 
 test('历史：同一条既被记账又被抽帧时，只留一份且算看过', () => {
@@ -190,7 +190,7 @@ test('历史：同一条既被记账又被抽帧时，只留一份且算看过',
 // 2026-11-07（用户反馈）：0.9.0 起刷站不再挂在唤醒上，她自己翻的记录写在 look: 里。
 // 以前 historyFromEvents 只认 watched: 与 browse:，于是 0.9.x 之后她看过的东西
 // 一条都不进列表——用户看到的是「记录停在几个月前」。
-test('历史：她自己翻的（look:）也要进列表，带标题、算翻到过', () => {
+test('历史：她自己翻的（look:）也要进列表，带标题、单独一档 look', () => {
   const events = [
     meta(`look:${DK} ${B1} {"title":"她自己点开的","up":"某个UP"}`),
   ]
@@ -199,7 +199,7 @@ test('历史：她自己翻的（look:）也要进列表，带标题、算翻到
   assert.equal(groups[0].items.length, 1)
   assert.equal(groups[0].items[0].bvid, B1)
   assert.equal(groups[0].items[0].title, '她自己点开的')
-  assert.equal(groups[0].items[0].how, 'glance')
+  assert.equal(groups[0].items[0].how, 'look', '她自己点开的，和自动逛翻到的不是一回事')
 })
 
 test('历史：look: 与 watched: 撞同一条时，只留「看过画面」的那份', () => {
@@ -225,7 +225,7 @@ test('历史：老的 look:（只有 BV 号）和同一天 browse: 撞同一条�
   const items = historyFromEvents(events, { days: 400 }).find((g) => g.date === DK).items
   assert.equal(items.filter((x) => x.bvid === B1).length, 1)
   const one = items.find((x) => x.bvid === B1)
-  assert.deepEqual([one.title, one.up, one.duration, one.view, one.how], ['有标题', '某UP', 61, 9, 'glance'])
+  assert.deepEqual([one.title, one.up, one.duration, one.view, one.how], ['有标题', '某UP', 61, 9, 'look'])
   const g = glancedItems(events, DK).find((x) => x.bvid === B1)
   assert.deepEqual([one.title, one.up], [g.title, g.up], '历史列表和翻到过的清单给同一个标题')
   assert.equal(items.find((x) => x.bvid === B2).title, '', '别的天的记账不拿来补')

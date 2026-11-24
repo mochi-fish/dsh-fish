@@ -708,7 +708,8 @@ test('「看过的视频」：说明不把她自己点开的说成旧版刷站�
   // 列表里会有她自己用 bili_look 点开的（look:），这类不是「旧版刷站」
   const events = [{ type: 'meta', text: 'look:2026-11-08 BV1dd411d7dd {"title":"她点开的","up":"某UP"}' }]
   const groups = historyFromEvents(events, { days: 14 })
-  assert.equal(groups[0].items[0].how, 'glance')
+  // 2026-11-24（用户 m01923）：look: 单独一档，不再和自动逛翻到过的混成 glance
+  assert.equal(groups[0].items[0].how, 'look')
   const app = await mount({
     routes: (m, p) => (p.startsWith('/history') ? { body: { days: daysOf(p), total: 1, groups } } : undefined),
   })

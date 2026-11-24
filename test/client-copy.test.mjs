@@ -882,3 +882,74 @@ test('每日报告：直接写一个日期——没报告的那天跳到那个�
   } finally { restore() }
 })
 
+
+// ---------------------------------------------------------------------------
+// 看过的视频：搜索 / 挑一天 / 三类分开标（2026-11-24，用户 m01923）
+// ---------------------------------------------------------------------------
+
+function histSample() {
+  return {
+    total: 4,
+    groups: [
+      { date: '2026-11-20', items: [
+        { bvid: 'BV1aa411a7aa', title: '讲判断器的', up: '甲UP', how: 'watch' },
+        { bvid: 'BV1bb411b7bb', title: '讲别的东西', up: '乙UP', how: 'look' },
+      ] },
+      { date: '2026-11-19', items: [
+        { bvid: 'BV1cc411c7cc', title: '随便翻到的', up: '丙UP', how: 'browse' },
+        { bvid: 'BV1dd411d7dd', title: '另一条翻到的', up: '丁UP', how: 'browse' },
+      ] },
+    ],
+  }
+}
+
+test('看过的视频：三类分开标，搜索框只留对得上的，还能清掉', async () => {
+  const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14 })
+  const all = text(card(app.render(), '看过的视频').node)
+  assert.match(all, /看过画面/, '抽帧看过的那条要标出来')
+  assert.match(all, /点开读过/, '她自己点开的单独一档')
+  assert.match(all, /只是翻到过/, '自动逛翻到的单独一档')
+  assert.match(all, /共 2 天 · 4 条/)
+
+  const box = findAll(field(app.render(), '找一条'), (n) => n.type === 'input')[0]
+  box.props.onChange({ target: { value: '判断器' } })
+  const one = text(card(app.render(), '看过的视频').node)
+  assert.match(one, /讲判断器的/)
+  assert.doesNotMatch(one, /讲别的东西/, '没对上的不摆')
+  assert.match(one, /对上的 1 条/, '筛选后要说清对上了几条')
+
+  button(card(app.render(), '看过的视频').node, '清掉筛选').props.onClick()
+  const back = text(card(app.render(), '看过的视频').node)
+  assert.match(back, /讲别的东西/, '清掉筛选要回来')
+  assert.match(back, /共 2 天 · 4 条/)
+})
+
+test('看过的视频：挑一天只看那天的；没记录的日子灰着点不了', async () => {
+  const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14 })
+  button(card(app.render(), '看过的视频').node, '挑一天').props.onClick()
+  const open = card(app.render(), '看过的视频')
+  const days = findAll(open.node, (n) => n.type === 'button' && /^\d{1,2}$/.test(text(n)))
+  assert.deepEqual(days.map(text), ['19', '20'], '只有有记录的那两天能点')
+  // 没有记录的那几天是灰格子：span、没有 onClick
+  const gray = findAll(open.node, (n) => n.type === 'span' && n.props?.title === '这一天没有记录——她那天没上网。')
+  assert.ok(gray.length >= 20, '11 月其余的日子都灰着')
+
+  days[1].props.onClick()
+  const one = card(app.render(), '看过的视频')
+  assert.match(text(one.node), /只看 2026-11-20/, '选完要说清只看哪一天')
+  assert.match(text(one.node), /讲判断器的/)
+  assert.doesNotMatch(text(one.node), /随便翻到的/, '别把别的天混进来')
+  assert.doesNotMatch(text(one.node), /2026 年 11 月/, '选完就把月历收起来')
+
+  button(one.node, '清掉筛选').props.onClick()
+  assert.match(text(card(app.render(), '看过的视频').node), /随便翻到的/, '清掉之后全回来')
+})
+
+test('看过的视频：搜到一个都没有时说清是没有，不是没读到', async () => {
+  const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14 })
+  const box = findAll(field(app.render(), '找一条'), (n) => n.type === 'input')[0]
+  box.props.onChange({ target: { value: '根本没有这个词' } })
+  const empty = text(card(app.render(), '看过的视频').node)
+  assert.match(empty, /没有对得上的/, '要给出「换个词/放宽日子」的出口')
+  assert.doesNotMatch(empty, /还没?\s*有记录/, '不能说成没有记录')
+})
