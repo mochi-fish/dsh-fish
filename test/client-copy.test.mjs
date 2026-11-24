@@ -771,3 +771,47 @@ test('她一次读多少字幕：页面上两档可选，选完界面跟着变',
   sel.props.onChange({ target: { value: 'whole' } })
   assert.equal(selOf().props.value, 'whole', '选了整篇，界面上的值要跟着变')
 })
+
+// ---------------------------------------------------------------------------
+// 每日报告的日期条：收成一行（2026-11-24，用户 m01411）
+// ---------------------------------------------------------------------------
+
+/** 往前数 n 天，写成 YYYY-MM-DD（含当天）。 */
+function daysBack(n, end = '2026-11-24') {
+  const out = []
+  const d = new Date(`${end}T00:00:00Z`)
+  for (let i = 0; i < n; i += 1) {
+    out.push(d.toISOString().slice(0, 10))
+    d.setUTCDate(d.getUTCDate() - 1)
+  }
+  return out
+}
+
+test('每日报告：日期再多也只占一行，最近七天在外、更早的按月收进下拉', async () => {
+  const dates = daysBack(40)
+  const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[0], md: '正文' } })
+  const c = card(app.render(), '每日报告')
+  const dateBtns = findAll(c.node, (n) => n.type === 'button' && /^\d{4}-\d{2}-\d{2}$/.test(text(n)))
+  assert.deepEqual(dateBtns.map(text), dates.slice(0, 7), '只有最近七天是按钮')
+  const sel = findAll(c.node, (n) => n.type === 'select')
+  assert.equal(sel.length, 1, '更早的要有一个下拉')
+  assert.equal(sel[0].props.value, '', '现在看的是最近那份，下拉不该替它选一个旧日子')
+  const opts = findAll(sel[0], (n) => n.type === 'option')
+  assert.equal(opts.length, 1 + dates.length - 7, '下拉里是全部旧日子，加上一个占位的头')
+  const groups = findAll(sel[0], (n) => n.type === 'optgroup')
+  assert.ok(groups.length >= 1, '旧日子要按月分组')
+  assert.ok(groups.every((g) => /^\d{4} 年 \d{1,2} 月$/.test(g.props.label)), `月份标题：${groups.map((g) => g.props.label)}`)
+  assert.match(text(c.node), /共 40 份/, '总数写在旁边，不用数按钮')
+  assert.equal(button(c.node, '前一天').props.disabled, false, '最新一份还有前一天')
+  assert.equal(button(c.node, '后一天').props.disabled, true, '最新一份没有后一天')
+})
+
+test('每日报告：翻到旧日子后，下拉里显示它，前后一天都能走', async () => {
+  const dates = daysBack(12)
+  const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[9], md: '正文' } })
+  const c = card(app.render(), '每日报告')
+  const sel = findAll(c.node, (n) => n.type === 'select')[0]
+  assert.equal(sel.props.value, dates[9], '下拉要把当前这天显示出来，不能装成没选')
+  assert.equal(button(c.node, '前一天').props.disabled, false)
+  assert.equal(button(c.node, '后一天').props.disabled, false)
+})
