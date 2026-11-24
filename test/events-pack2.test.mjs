@@ -92,6 +92,20 @@ test('扩充包：条件在事实出现后成立，并把原话带进处境', ()
   assert.match(byId.name_use.prompt(model({ name: '小鱼' })), /小鱼/)
   assert.equal(byId.tension_resolve.cond(model({ tensions: [{ a: { text: '甲' }, b: { text: '乙' } }] })), true)
   assert.match(byId.tension_resolve.prompt(model({ tensions: [{ a: { text: '甲说法' }, b: { text: '乙说法' } }] })), /甲说法/)
+  // 2026-11-24：拿不准的一对（没有共同对象、只过了长句补贴线）不该逼她给一个理由。
+  assert.equal(
+    byId.tension_resolve.cond(model({ tensions: [{ severity: 'suspect', a: { text: '甲' }, b: { text: '乙' } }] })),
+    false,
+    'suspect 的一对不进这张卡',
+  )
+  const mixed = byId.tension_resolve.prompt(model({
+    tensions: [
+      { severity: 'suspect', a: { text: '甲说法' }, b: { text: '乙说法' } },
+      { severity: 'solid', a: { text: '丙说法' }, b: { text: '丁说法' } },
+    ],
+  }))
+  assert.match(mixed, /丙说法/)
+  assert.doesNotMatch(mixed, /甲说法/, '有一对说得清的就拿那一对问，不拿拿不准的凑数')
   assert.equal(byId.faded_check.cond(model({ faded: [{ text: '旧判断' }] })), true)
   assert.match(byId.faded_check.prompt(model({ faded: [{ text: '旧判断' }] })), /旧判断/)
   assert.equal(byId.scar_revisit.cond(model({ scars: [{ quote: '那次他走的时候' }] })), true)

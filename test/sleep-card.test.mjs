@@ -58,6 +58,29 @@ test('两句反着：问她现在更站哪一句，不替她裁决', () => {
   assert.match(q.ask, /更站哪一句/)
 })
 
+test('拿不准的一对：先问是不是同一件事，不逼她在一件可能不存在的事上选边', () => {
+  const q = sleepQuestion(
+    m([], [{ severity: 'suspect', a: { text: '这事应该直接说' }, b: { text: '这事还是别说为好' } }]),
+    { now: NOW, anyActivity: true },
+  )
+  assert.equal(q.kind, 'opposite')
+  assert.match(q.ask, /这两句说的是同一件事吗/)
+  assert.doesNotMatch(q.ask, /更站哪一句，为什么/)
+})
+
+test('有一对说得清的就不拿拿不准的那对去问她', () => {
+  const q = sleepQuestion(
+    m([], [
+      { severity: 'suspect', a: { text: '甲说法' }, b: { text: '乙说法' } },
+      { severity: 'solid', a: { text: '丙说法' }, b: { text: '丁说法' } },
+    ]),
+    { now: NOW, anyActivity: true },
+  )
+  assert.equal(q.kind, 'opposite')
+  assert.match(q.ask, /丙说法/)
+  assert.doesNotMatch(q.ask, /甲说法/)
+})
+
 test('两句同向、说法不同：问它们是不是一件事的两个情况', () => {
   const q = sleepQuestion(
     m([

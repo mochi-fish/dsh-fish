@@ -932,6 +932,48 @@ test('tensions 一次调用与以前两次调用结果相同（前三条 + 总�
   assert.ok(m.tensionsTotal > 3, '总数要超过摆出来的 3 条')
 })
 
+// ---- 「对不上」分两档（2026-11-24，外部报告续） ----
+// 没有共同对象时，长句子靠一条按句长归一的门槛（minSim 0.5、100 字句实际 0.4375）
+// 才能配成对。只过这条补贴线的，可能是两句话字面上撞了几个词，不该跟
+// 「说的是同一个人、方向还反着」那一类并列去断言。用生成的长尾巴造一对稳定落在
+// 补贴带里的句子：共享 91 字、尾巴各 110 字，二字组相似度约 0.45。
+const tensionTail = (from, n) => Array.from({ length: n }, (_, i) => String.fromCharCode(from + i)).join('')
+const TENSION_BASE = '我总觉得人和事之间该有个先来后到先把眼前这一摊收拾干净再谈其它剩下的慢慢来也来得及着急只会把事情弄乱这道理说了很多遍还是照旧'
+const TENSION_SHARED = TENSION_BASE.repeat(4).slice(0, 91)
+const TENSION_A = '我从不' + TENSION_SHARED + tensionTail(0x4e00, 110)
+const TENSION_B = TENSION_SHARED + tensionTail(0x7000, 110)
+
+test('「对不上」分两档：同一个对象配上的算 solid，只过长句补贴线的是 suspect', () => {
+  const at = '2026-11-01T00:00:00.000Z', later = '2026-11-02T00:00:00.000Z'
+  const loose = detectTensions([
+    { id: 'a', text: TENSION_A, since: at },
+    { id: 'b', text: TENSION_B, since: later },
+  ])
+  assert.equal(loose.length, 1)
+  assert.ok(loose[0].sim < 0.5, '这一对要真的没过 nominal 线，否则测的不是 suspect')
+  assert.equal(loose[0].severity, 'suspect')
+  assert.equal(loose[0].object, '')
+
+  const same = detectTensions([
+    { id: 'a', text: TENSION_A, since: at, topic: '同一件事' },
+    { id: 'b', text: TENSION_B, since: later, topic: '同一件事' },
+  ])
+  assert.equal(same[0].severity, 'solid', '说的是同一个题目，字面不像也是硬的对')
+  assert.equal(same[0].object, 'topic')
+})
+
+test('拿不准的对排在拿得准的后面（她只看得到第一条）', () => {
+  const all = detectTensions([
+    { id: 's1', text: TENSION_A, since: '2026-11-01T00:00:00.000Z' },
+    { id: 's2', text: TENSION_B, since: '2026-11-02T00:00:00.000Z' },
+    { id: 'o1', text: '这件事我从来不插手', since: '2026-11-03T00:00:00.000Z', topic: '同一件事' },
+    { id: 'o2', text: '这件事我每次都插手到底', since: '2026-11-04T00:00:00.000Z', topic: '同一件事' },
+  ])
+  assert.equal(all[0].severity, 'solid')
+  assert.equal(all[0].a.id, 'o1', '前面那对更像，也要让位给说得清对象的这一对')
+  assert.ok(all.some((t) => t.severity === 'suspect'))
+})
+
 // ---- 拒绝的来路：refs 指到他的那句话才记下来（2026-11-18，加拿大反馈带出来的） ----
 // 「是他先提的吗」不在措辞里猜：她挂过 refs、而且指到一条 heard（他本人说的、不是群里的），
 // 才算他先提。没挂就当她没记过——文档退回只写她自己的话。

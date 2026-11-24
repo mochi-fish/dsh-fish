@@ -186,6 +186,28 @@ test('没有回看自己的话就不编：narrative 保持空', () => {
   assert.equal(deriveSelf(evs, { now: T0 + 2 * DAY_MS }).narrative, null)
 })
 
+// 2026-11-24（外部报告续）：拿不准的一对不许断言「不能同时算数」。
+// 判据是 derive 的 severity（同一个对象 / 真的过了 minSim 才 solid）。这里从 events 出发，
+// 走真实派生链路，避免用桩模型绕过 severity 的来路。
+test('拿不准的一对：换一块说，给她一个「不用管」的出口', () => {
+  const base = '我总觉得人和事之间该有个先来后到先把眼前这一摊收拾干净再谈其它剩下的慢慢来也来得及着急只会把事情弄乱这道理说了很多遍还是照旧'
+  const shared = base.repeat(4).slice(0, 91)
+  const tail = (from, n) => Array.from({ length: n }, (_, i) => String.fromCharCode(from + i)).join('')
+  const m = deriveSelf([
+    ev('ev_seed', 'seed', 1, '种', { source: 'system' }),
+    ev('ev_a', 'utterance', 2, '我从不' + shared + tail(0x4e00, 110)),
+    ev('ev_b', 'utterance', 3, shared + tail(0x7000, 110)),
+  ], { now: T0 + 4 * DAY_MS })
+  assert.equal(m.tensions[0].severity, 'suspect')
+
+  const text = personaLine(m, { budget: 6000 })
+  assert.match(text, /## 有两句话我没分清是不是一件事/)
+  assert.match(text, /这两句字面上有点对着/)
+  assert.match(text, /这一条不用管/)
+  assert.doesNotMatch(text, /不能同时算数/)
+  assert.doesNotMatch(text, /哪句才是你的/)
+})
+
 // --------------------------------------------------------------- 装配到提示
 
 test('冲突与固化都要进她的身份文档，而且冲突不给结论', () => {
