@@ -903,25 +903,61 @@ function histSample() {
   }
 }
 
+/** 服务端那侧的形状：`?q=` 的每个词都要命中标题 / UP / BV（2026-11-24，用户 m02329）。 */
+function histQ(q) {
+  const sample = histSample()
+  const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return { days: 14, ...sample }
+  const groups = sample.groups.map((g) => ({
+    date: g.date,
+    items: g.items.filter((it) => {
+      const hay = `${it.title} ${it.up} ${it.bvid}`.toLowerCase()
+      return words.every((w) => hay.includes(w))
+    }),
+  })).filter((g) => g.items.length)
+  return { days: 14, total: groups.reduce((n, g) => n + g.items.length, 0), groups }
+}
+const wait = (ms = 0) => new Promise((r) => setTimeout(r, ms))
+
 test('看过的视频：三类分开标，搜索框只留对得上的，还能清掉', async () => {
-  const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14 })
-  const all = text(card(app.render(), '看过的视频').node)
-  assert.match(all, /看过画面/, '抽帧看过的那条要标出来')
-  assert.match(all, /点开读过/, '她自己点开的单独一档')
-  assert.match(all, /只是翻到过/, '自动逛翻到的单独一档')
-  assert.match(all, /共 2 天 · 4 条/)
+  const stop = stubFetch({ '/history': (path) => histQ(decodeURIComponent(/[?&]q=([^&]*)/.exec(path)?.[1] || '')) })
+  try {
+    const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14 })
+    const all = text(card(app.render(), '看过的视频').node)
+    assert.match(all, /看过画面/, '抽帧看过的那条要标出来')
+    assert.match(all, /点开读过/, '她自己点开的单独一档')
+    assert.match(all, /只是翻到过/, '自动逛翻到的单独一档')
+    assert.match(all, /共 2 天 · 4 条/)
 
-  const box = findAll(field(app.render(), '找一条'), (n) => n.type === 'input')[0]
-  box.props.onChange({ target: { value: '判断器' } })
-  const one = text(card(app.render(), '看过的视频').node)
-  assert.match(one, /讲判断器的/)
-  assert.doesNotMatch(one, /讲别的东西/, '没对上的不摆')
-  assert.match(one, /对上的 1 条/, '筛选后要说清对上了几条')
+    const box = findAll(field(app.render(), '找一条'), (n) => n.type === 'input')[0]
+    box.props.onChange({ target: { value: '判断器' } })
+    await wait(350)  // 输入是防抖的：300ms 之后才去问
+    const one = text(card(app.render(), '看过的视频').node)
+    assert.match(one, /讲判断器的/)
+    assert.doesNotMatch(one, /讲别的东西/, '没对上的不摆')
+    assert.match(one, /对上的 1 条/, '筛选后要说清对上了几条')
 
-  button(card(app.render(), '看过的视频').node, '清掉筛选').props.onClick()
-  const back = text(card(app.render(), '看过的视频').node)
-  assert.match(back, /讲别的东西/, '清掉筛选要回来')
-  assert.match(back, /共 2 天 · 4 条/)
+    button(card(app.render(), '看过的视频').node, '清掉筛选').props.onClick()
+    await wait()
+    const back = text(card(app.render(), '看过的视频').node)
+    assert.match(back, /讲别的东西/, '清掉筛选要回来')
+    assert.match(back, /共 2 天 · 4 条/)
+  } finally { stop() }
+})
+
+test('看过的视频：换查询范围要清掉旧的「只看某一天」', async () => {
+  const stop = stubFetch({ '/history': () => histQ('') })
+  try {
+    const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14, histPick: '2026-01-01' })
+    assert.match(text(card(app.render(), '看过的视频').node), /只看 2026-01-01/, '先摆着旧的选择')
+    // 旧的选中日在 14 天范围里根本不存在：换范围时必须清掉，否则永远是「0 条」
+    const sel = findAll(field(app.render(), '查多久的记录'), (n) => n.type === 'select')[0]
+    sel.props.onChange({ target: { value: '30' } })
+    await wait()
+    const after = text(card(app.render(), '看过的视频').node)
+    assert.doesNotMatch(after, /只看 2026-01-01/)
+    assert.match(after, /讲判断器的/)
+  } finally { stop() }
 })
 
 test('看过的视频：挑一天只看那天的；没记录的日子灰着点不了', async () => {
@@ -931,7 +967,7 @@ test('看过的视频：挑一天只看那天的；没记录的日子灰着点�
   const days = findAll(open.node, (n) => n.type === 'button' && /^\d{1,2}$/.test(text(n)))
   assert.deepEqual(days.map(text), ['19', '20'], '只有有记录的那两天能点')
   // 没有记录的那几天是灰格子：span、没有 onClick
-  const gray = findAll(open.node, (n) => n.type === 'span' && n.props?.title === '这一天没有记录——她那天没上网。')
+  const gray = findAll(open.node, (n) => n.type === 'span' && n.props?.title === '这一天没有记录——没上网就没有这一条。')
   assert.ok(gray.length >= 20, '11 月其余的日子都灰着')
 
   days[1].props.onClick()
@@ -941,15 +977,23 @@ test('看过的视频：挑一天只看那天的；没记录的日子灰着点�
   assert.doesNotMatch(text(one.node), /随便翻到的/, '别把别的天混进来')
   assert.doesNotMatch(text(one.node), /2026 年 11 月/, '选完就把月历收起来')
 
-  button(one.node, '清掉筛选').props.onClick()
-  assert.match(text(card(app.render(), '看过的视频').node), /随便翻到的/, '清掉之后全回来')
+  const stop = stubFetch({ '/history': () => histQ('') })
+  try {
+    button(one.node, '清掉筛选').props.onClick()
+    await wait()
+    assert.match(text(card(app.render(), '看过的视频').node), /随便翻到的/, '清掉之后全回来')
+  } finally { stop() }
 })
 
 test('看过的视频：搜到一个都没有时说清是没有，不是没读到', async () => {
-  const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14 })
-  const box = findAll(field(app.render(), '找一条'), (n) => n.type === 'input')[0]
-  box.props.onChange({ target: { value: '根本没有这个词' } })
-  const empty = text(card(app.render(), '看过的视频').node)
-  assert.match(empty, /没有对得上的/, '要给出「换个词/放宽日子」的出口')
-  assert.doesNotMatch(empty, /还没?\s*有记录/, '不能说成没有记录')
+  const stop = stubFetch({ '/history': (path) => histQ(decodeURIComponent(/[?&]q=([^&]*)/.exec(path)?.[1] || '')) })
+  try {
+    const app = await mount({ state: stateWith(), tab: 'bili', hist: histSample(), histDays: 14 })
+    const box = findAll(field(app.render(), '找一条'), (n) => n.type === 'input')[0]
+    box.props.onChange({ target: { value: '根本没有这个词' } })
+    await wait(350)
+    const empty = text(card(app.render(), '看过的视频').node)
+    assert.match(empty, /没有对得上的/, '要给出「换个词/放宽日子」的出口')
+    assert.doesNotMatch(empty, /还没?\s*有记录/, '不能说成没有记录')
+  } finally { stop() }
 })
