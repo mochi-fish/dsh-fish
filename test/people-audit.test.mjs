@@ -10,7 +10,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { detectTensions } from '../lib/derive.js'
-import { peopleOf, peopleSection } from '../lib/people.js'
+import { peopleOf, peopleSection, renderPerson } from '../lib/people.js'
 import { examine } from '../lib/health.js'
 
 const DAY = 86_400_000
@@ -93,3 +93,57 @@ test('体检：只给名字的人也进「另外见过几个人」', () => {
   const r = examine(events)
   assert.equal(r.people.met, 2)
 })
+
+/**
+ * 2026-11-24（用户 m05215「放行同对象」）：同一个人的两种描述，方向相同也要能摆出来。
+ * 以前极性闸在对象判定之后，两句都不带否定词就永远进不来——而「他总是半夜回话」→
+ * 「他作息挺规律」正是「发现这个人是什么样」最常见的一类。
+ * 代价用户已经认了：同一个人两句互不冲突的描述也会被问一句，所以只进「说法变过」并标 suspect。
+ */
+test('说法变过：同一个人的两种描述，方向相同、隔开一周以上才算', () => {
+  const far = [
+    belief('g1', '老王总是半夜才回话。', 0, { id: 'bili:1', name: '老王' }),
+    belief('g2', '老王作息挺规律的，十一点就睡。', 8, { id: 'bili:1', name: '老王' }),
+  ]
+  const hits = detectTensions(far, { limit: 10 })
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].kind, 'drift')
+  assert.equal(hits[0].severity, 'suspect')
+
+  // 隔三天：多半只是这次说的角度不同，不当成「看法变了」。
+  const near = [
+    belief('h1', '老王总是半夜才回话。', 0, { id: 'bili:1', name: '老王' }),
+    belief('h2', '老王作息挺规律的，十一点就睡。', 3, { id: 'bili:1', name: '老王' }),
+  ]
+  assert.equal(detectTensions(near, { limit: 10 }).length, 0)
+})
+
+/**
+ * 2026-11-24（用户 m05215）：对人的认知要跟判断、立场一样能改口。
+ * 她写一条 revise、refs 指着旧那句，旧的就退场（进 changed），不是两句并排摆着。
+ */
+test('改口：被 revise 改掉的旧判断退场，改过口的留痕', () => {
+  const events = [
+    ev({ id: 'k1', ts: at(0), type: 'utterance', text: '老王这人挺急的。', who: { id: 'bili:9', name: '老王' } }),
+    ev({
+      id: 'k2',
+      ts: at(10),
+      type: 'revise',
+      text: '老王比我先前想的沉得住气。',
+      who: { id: 'bili:9', name: '老王' },
+    }),
+  ]
+  // ev() 不带 refs/verdict，这里补上（真实事件里 revise 必须带 refs）。
+  events[1].refs = ['k1']
+  events[1].verdict = 'refined'
+  const p = peopleOf(events)[0]
+  assert.deepEqual(p.judgments.map((j) => j.id), ['k2'])
+  assert.equal(p.changed.length, 1)
+  assert.equal(p.changed[0].text, '老王这人挺急的。')
+  assert.equal(p.judgments[0].changedFrom, '老王这人挺急的。')
+  const page = renderPerson(p, { pronoun: '你' })
+  assert.match(page, /改的口/)
+  assert.match(page, /以前不是这么说的/)
+  assert.match(page, /refs 填那条的 id/)
+})
+

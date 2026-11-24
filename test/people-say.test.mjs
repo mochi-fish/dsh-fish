@@ -147,7 +147,33 @@ test('给了 speakerId：落的是 id，同名的两个人各记一条', async (
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
 })
 
-test('同一个人当天只记一条；换了人各记一条', async () => {  const root = await tmpRoot()
+// 2026-11-24（用户 m05215）：桥只给名字、不给 id 时，别把同一个人记成两个。
+// 群消息那条（S2-b）走 source 声明里的 id，会落成 `qq:777`；这里再按名字落一条
+// `name:张三`，身份段里就成了两个人，一个有判断、一个只剩凭据。
+test('只给名字：按名字反查已经记下来过的 id，不把人拆成两个', async () => {
+  const root = await tmpRoot()
+  try {
+    await seed(root)
+    await config(root, { enabled: true })
+    // 先前那条群消息已经带着 id 落过了（S2-b 那条路）
+    await appendEvent(
+      { type: 'voice', text: '我先说一句', scene: 'group', who: { id: 'qq:777', name: '张三' } },
+      { day: 1, stage: 1, source: 'system' },
+      root,
+    )
+    const { ctx, emit } = fakeCtx()
+    speak(ctx, emit, '听得见。')
+    await sayToHer(ctx, '在吗', { root, waitMs: 5_000, channel: 'qq-group:1', scene: 'group', speaker: '张三' })
+
+    const lines = await groupLines(root)
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0].who.id, 'qq:777', '按名字反查到了已有的 id，就不再另起一个 name: 键')
+    assert.equal(lines[0].who.name, '张三')
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+test('同一个人当天只记一条；换了人各记一条', async () => {
+  const root = await tmpRoot()
   try {
     await seed(root)
     await config(root, { enabled: true })
