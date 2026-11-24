@@ -370,6 +370,10 @@ export interface HostContext {
 }
 
 export interface TenancyBag {
+  /** 宿主 Cordis 上下文：只用于问 workingDirectory 服务「会话此刻在哪」。 */
+  ctx?: { get?: (name: string) => any }
+  /** 按会话 id 认她（1.1.0 起）：写入口不再让出生目录决定归属。 */
+  isHerSession?: (sessionId: string) => boolean
   root?: string
   herDir?: string
   tenant?: { ok: boolean; instanceId?: string; why?: string; owner?: { dataDir?: string } }
