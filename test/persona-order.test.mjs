@@ -133,3 +133,17 @@ test('可选段顺序：她拒绝过的排在「你对自己的说法」前头',
 test('预算常量与配置同源：3600', () => {
   assert.equal(SELF_DOC_BUDGET, 3600)
 })
+
+test('判「关于谁」用不截断的人名与 id，不用界面那份 24 人名单（用户 m05827）', () => {
+  const model = {
+    beliefs: [
+      { id: 'b1', who: {}, topic: '朋友1', text: '朋友1 话不多。' },
+      { id: 'w1', who: {}, topic: '', text: '夜里容易想事情。' },
+    ],
+    // 展示用的名单只留得下 24 个，朋友1 被截在外面
+    people: [{ id: 'owner', name: '猫', judgments: [], changed: [], said: [], didTo: [] }],
+    peopleNames: ['猫', '朋友1'],
+    personBeliefIds: ['b1'],
+  }
+  assert.deepEqual(worldBeliefsOf(model).map((b) => b.id), ['w1'], '关于人的那条不算世界')
+})

@@ -209,3 +209,39 @@ test('夜里那几次也要够数才摆，且说清是「记下来过」不是�
   assert.doesNotMatch(renderPerson(mixed[0]), /在夜里/, '只有一次在夜里，不能当习惯摆出来')
 })
 
+test('主人的称呼进了名字表：topic 写称呼也挂得上，标题跟着称呼走（用户 m05827）', () => {
+  const events = [
+    ev({ id: 'e1', type: 'heard', ts: T1, text: '以后叫你猫。', who: OWNER }),
+    ev({ id: 'e2', type: 'utterance', ts: T2, text: '猫这人嘴硬心软。', topic: '猫' }),
+  ]
+  // 不给别名时挂不上——主人那一行的 name 永远是空串，名字表里从来没有主人
+  assert.equal(peopleOf(events)[0].judgments.length, 0, '这是修之前的坑，别退回')
+
+  const people = peopleOf(events, { ownerNames: ['猫'] })
+  assert.equal(people[0].id, 'owner', '主人永远第一行')
+  assert.equal(people[0].name, '猫', '称呼成了主人的名字')
+  assert.deepEqual(people[0].judgments.map((j) => j.id), ['e2'])
+
+  const section = peopleSection({ name: '猫', people, firstMetAt: T1 }, { others: true })
+  assert.match(section, /## 你认识的猫/, '标题用的是她给他的称呼，不是「他」')
+  assert.doesNotMatch(section, /\{T\}/)
+})
+
+test('改了口，那个人不会从身份段消失：revise 从 refs 继承归属（用户 m05827）', () => {
+  const events = [
+    ev({ id: 'e1', type: 'voice', ts: T1, text: '我一般两点才睡。', who: WANG }),
+    ev({ id: 'e2', type: 'utterance', ts: T2, text: '老王爱在半夜回话。', topic: '老王' }),
+    // revise 不带 who、不带 topic，只拿 refs 指着旧那句
+    { id: 'e3', type: 'revise', ts: T3, text: '老王其实作息挺规律，是那阵子忙。', refs: ['e2'], verdict: 'refined' },
+  ]
+  const wang = peopleOf(events).find((p) => p.id === WANG.id)
+  assert.ok(wang, '老王还在名单里')
+  assert.deepEqual(wang.judgments.map((j) => j.id), ['e3'], '新说法挂到了旧句那个人身上')
+  assert.equal(wang.judgments[0].changedFrom, '老王爱在半夜回话。')
+  assert.equal(wang.changed.length, 1, '旧句退场但留痕')
+  assert.equal(wang.changed[0].text, '老王爱在半夜回话。')
+
+  const section = peopleSection({ people: peopleOf(events) }, { others: true })
+  assert.match(section, /老王/, '改了口的人不会被整段抹掉')
+})
+
