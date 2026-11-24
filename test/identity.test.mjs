@@ -506,18 +506,22 @@ test('index.js：先写身份文本、再注册身份段、最后才建屋子', 
   assert.ok(!/身份文件：宿主每轮会重读它/.test(INDEX), '旧注释里「宿主每轮重读」已经不成立')
 })
 
-test('默认预算 1200 → 1800 → 2400 → 2800，且三处（配置、常量、界面）一致', () => {
+test('默认预算 1200 → 1800 → 2400 → 2800 → 3600，且三处（配置、常量、界面）一致', () => {
   // 2026-11-03（用户 m00998）：1800 / 2000 都挤掉「你被打脸过」，2200 反而挤掉
   // 「你对自己的说法」（更糟），2400 才一段不丢。三个数必须一起动，否则界面里
   // 显示的和真正用的不是一个数。
   // 2026-11-14（用户 m00533）：加「还没收尾的」一行后 2400 又开始挤打脸，提到 2800。
-  assert.equal(DEFAULTS.memory.docBudget, 2800)
-  assert.equal(SELF_DOC_BUDGET, 2800)
-  assert.ok(CLIENT.includes('useState(2800)'), '界面初始值要跟着改')
-  assert.ok(CLIENT.includes("cfg.memory?.docBudget ?? 2800"))
+  // 2026-11-24（用户 m05523）：加进「你认识的{T}」之后，把认识的人摆满再叠上
+  // 日常长的判断，实测要 3437 字才一段不丢；2800 会先丢「你对自己的说法」与
+  // 「更早以前」，提到 3600（3437 + 一点余量）。
+  assert.equal(DEFAULTS.memory.docBudget, 3600)
+  assert.equal(SELF_DOC_BUDGET, 3600)
+  assert.ok(CLIENT.includes('useState(3600)'), '界面初始值要跟着改')
+  assert.ok(CLIENT.includes("cfg.memory?.docBudget ?? 3600"))
   assert.ok(!CLIENT.includes('useState(1200)'), '旧的 1200 不许残留')
   assert.ok(!CLIENT.includes('useState(1800)'), '旧的 1800 不许残留')
   assert.ok(!CLIENT.includes('useState(2400)'), '旧的 2400 不许残留')
+  assert.ok(!CLIENT.includes('useState(2800)'), '旧的 2800 不许残留')
   // 判断区仍固定 3 条：这一条是「像工作记忆」，与预算无关
   assert.equal(BELIEF_SHOWN, 3)
 })

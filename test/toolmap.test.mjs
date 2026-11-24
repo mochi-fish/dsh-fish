@@ -88,7 +88,10 @@ test('说明书的字数：长不等于有用', () => {
   const briefs = [TOOL_BRIEF, RECALL_BRIEF, LETTER_BRIEF, NOTE_BRIEF, ASK_BRIEF,
     DREAM_BRIEF, SCHEDULE_BRIEF, SPEAK_BRIEF, DIARY_BRIEF, SLEEP_BRIEF]
   const total = briefs.reduce((n, s) => n + s.length, 0)
-  assert.ok(total <= 2400, `全部说明书合计 ${total} 字，超过 2400 就该想想是不是又在写产品手册`)
+  // 2026-11-24（用户 m05523）：2400 → 2500。1.1.0 加进 her_people 之后合计 2357，
+  // 余 43 字——下一次任何一句话长一点就撞线。抬到 2500 不是为了让谁多写，
+  // 是让「说实话」的那部分有空余；超过 2500 仍然该想想是不是又在写产品手册。
+  assert.ok(total <= 2500, `全部说明书合计 ${total} 字，超过 2500 就该想想是不是又在写产品手册`)
   assert.ok(NOTE_BRIEF.length <= 240, `her_note 的说明书 ${NOTE_BRIEF.length} 字，太长了`)
 })
 

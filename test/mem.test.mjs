@@ -714,7 +714,7 @@ test('冷却期过了就能再试，换成之后把失败记录清掉', async ()
 test('新配置项有默认值且能被夹住', () => {
   // 2026-11-15（用户 m00648）：默认 40 → 120——他日常一句一句短聊，40 轮才约 1 万 token，换得太勤。
   assert.equal(DEFAULTS.chat.rotateAfter, 120)
-  assert.equal(DEFAULTS.memory.docBudget, 2800, '2026-10-25：1200 → 1800；2026-11-03：1800 → 2400（可选段变多，2000 仍挤掉打脸记录）；2026-11-14：2400 → 2800（新增「最近收过尾的」一行，余量不够用）')
+  assert.equal(DEFAULTS.memory.docBudget, 3600, '2026-10-25：1200 → 1800；2026-11-03：1800 → 2400（可选段变多，2000 仍挤掉打脸记录）；2026-11-14：2400 → 2800（新增「最近收过尾的」一行，余量不够用）；2026-11-24：2800 → 3600（加进「你认识的TA」之后，摆满 3 个人再叠日常判断要 3437 字才一段不丢）')
   assert.equal(DEFAULTS.memory.sleepEveryDays, 7)
   const c = normalizeConfig({ chat: { rotateAfter: 9999 }, memory: { docBudget: 1, sleepEveryDays: 999 } })
   assert.equal(c.chat.rotateAfter, 500)

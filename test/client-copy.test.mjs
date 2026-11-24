@@ -787,7 +787,7 @@ function daysBack(n, end = '2026-11-24') {
   return out
 }
 
-test('每日报告：最近十天在外面，更早的另起一行按月收进下拉', async () => {
+test('每日报告：最近十天在外面，更早的收进「选一个日子」，不再铺一长条', async () => {
   const dates = daysBack(40)
   const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[0], md: '正文' } })
   const c = card(app.render(), '每日报告')
@@ -797,25 +797,38 @@ test('每日报告：最近十天在外面，更早的另起一行按月收进�
     findAll(c.node, (n) => n.type === 'button' && /^(前|后)一天$/.test(text(n))).length, 0,
     '前一天 / 后一天不要了（用户 m01579）',
   )
-  const sel = findAll(c.node, (n) => n.type === 'select')
-  assert.equal(sel.length, 1, '更早的要有一个下拉')
-  assert.equal(sel[0].props.value, '', '现在看的是最近那份，下拉不该替它选一个旧日子')
-  const opts = findAll(sel[0], (n) => n.type === 'option')
-  assert.equal(opts.length, 1 + dates.length - 10, '下拉里是全部旧日子，加上一个占位的头')
-  const groups = findAll(sel[0], (n) => n.type === 'optgroup')
-  assert.ok(groups.length >= 1, '旧日子要按月分组')
-  assert.ok(groups.every((g) => /^\d{4} 年 \d{1,2} 月$/.test(g.props.label)), `月份标题：${groups.map((g) => g.props.label)}`)
+  assert.equal(findAll(c.node, (n) => n.type === 'select').length, 0, '40 份日子不再铺成一条长下拉（用户 m01711）')
   assert.match(text(c.node), /共 40 份/, '总数写在旁边，不用数按钮')
 
-  // 下拉另起一行：它所在的那一行里没有日期按钮，旁边只有一句说明。
-  const selRow = findAll(c.node, (n) => Array.isArray(n.children) && n.children.includes(sel[0]))[0]
-  assert.ok(selRow, '下拉要在自己那一行里')
-  assert.equal(findAll(selRow, (n) => n.type === 'button').length, 0, '更早的那一行不混日期按钮')
-  assert.match(text(selRow), /选一个日子，那天的报告就在下面打开/, '这一行要说明选了会发生什么')
+  // 更早的收在一颗按钮后面；没展开时页面上没有月历，也不占地方。
+  assert.ok(button(c.node, '选一个日子'), '更早的日子要有一个入口')
+  assert.equal(findAll(c.node, (n) => n.type === 'input' && n.props.type === 'date').length, 0, '没展开时不该有月历')
+  const openRow = findAll(c.node, (n) => Array.isArray(n.children) && n.children.some((x) => x && x.type === 'button' && text(x) === '选一个日子'))[0]
+  assert.ok(openRow, '入口要在自己那一行里')
+  assert.match(text(openRow), /近十天在上一行；更早的从这里挑/, '这一行要说明更早的日子去哪了')
 })
 
-test('每日报告：从下拉里挑一个旧日子，那天的报告直接打开，也能导出', async () => {
-  const dates = daysBack(15)
+test('每日报告：展开月历，一屏一个月，没报告的日子灰着且点不了', async () => {
+  const dates = daysBack(40)  // 2026-11-24 → 2026-10-16
+  const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[0], md: '正文' } })
+  button(card(app.render(), '每日报告').node, '选一个日子').props.onClick()
+  const c = card(app.render(), '每日报告')
+  assert.match(text(c.node), /2026 年 11 月/, '先落在正在看的那个月')
+  const dayBtns = findAll(c.node, (n) => n.type === 'button' && /^\d{1,2}$/.test(text(n)))
+  // dates 是连着 40 天：2026-11-01…24 都有报告，25…30 没有。
+  assert.deepEqual(dayBtns.map(text), Array.from({ length: 24 }, (_, i) => String(i + 1)),
+    '有报告的日子才是按钮（2026-11 里是 1 到 24 号）')
+  assert.ok(dayBtns.every((b) => typeof b.props.onClick === 'function'), '有报告的日子点得动')
+  const grey = findAll(c.node, (n) => n.type === 'span' && hasClass(n, 'dim') && /^\d{1,2}$/.test(text(n)))
+  assert.equal(grey.length, 6, '2026 年 11 月 30 天，24 天有报告，其余 6 天灰着')
+  assert.ok(grey.every((s) => typeof s.props.onClick !== 'function'), '没报告的日子不该能点')
+  const input = findAll(c.node, (n) => n.type === 'input' && n.props.type === 'date')[0]
+  assert.ok(input, '还要能直接写哪天')
+  assert.equal(input.props.defaultValue, dates[0], '日期框里先是正在看的那天')
+})
+
+test('每日报告：点月历里的日子，那天的报告直接打开，也能导出', async () => {
+  const dates = daysBack(15)  // 2026-11-24 → 2026-11-10
   const restore = stubFetch({
     '/reports': (path) => {
       const date = String(path).split('date=')[1]
@@ -824,18 +837,48 @@ test('每日报告：从下拉里挑一个旧日子，那天的报告直接打�
   })
   try {
     const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[0], md: `正文 ${dates[0]}` } })
-    let c = card(app.render(), '每日报告')
-    const sel = findAll(c.node, (n) => n.type === 'select')[0]
-    assert.equal(sel.props.value, '', '还没挑旧日子，下拉停在占位上')
-    assert.match(text(c.node), /点一个日期，那天的报告就在下面打开/, '没选之前先说清这块怎么用')
-
-    sel.props.onChange({ target: { value: dates[12] } })
+    assert.match(text(card(app.render(), '每日报告').node), /点一个日期，那天的报告就在下面打开/, '没选之前先说清这块怎么用')
+    button(card(app.render(), '每日报告').node, '选一个日子').props.onClick()
+    const c = card(app.render(), '每日报告')
+    const day = findAll(c.node, (n) => n.type === 'button' && text(n) === '12')[0]
+    assert.ok(day, '2026-11-12 有报告，月历里要有这一格')
+    day.props.onClick()
     await new Promise((r) => setTimeout(r, 0))
-    c = card(app.render(), '每日报告')
-    assert.equal(findAll(c.node, (n) => n.type === 'select')[0].props.value, dates[12], '挑过的日子要显示在下拉里')
-    assert.match(text(c.node), new RegExp(`正在看 ${dates[12]}`), '要说清现在看的是哪一天')
-    assert.match(text(c.node), new RegExp(`正文 ${dates[12]}`), '选完就把那天的报告打开，不用再点一次「展开报告」')
-    assert.ok(button(c.node, '导出报告'), '导出的还是当前这一天')
+    const after = card(app.render(), '每日报告')
+    assert.match(text(after.node), /正在看 2026-11-12/, '要说清现在看的是哪一天')
+    assert.match(text(after.node), /正文 2026-11-12/, '选完就把那天的报告打开，不用再点一次「展开报告」')
+    assert.ok(button(after.node, '导出报告'), '导出的还是当前这一天')
+    assert.doesNotMatch(text(after.node), /2026 年 11 月/, '选完就把月历收起来，别挡着报告')
+  } finally { restore() }
+})
+
+test('每日报告：直接写一个日期——没报告的那天跳到那个月，有报告的直接打开', async () => {
+  const dates = daysBack(40)
+  const restore = stubFetch({
+    '/reports': (path) => {
+      const date = String(path).split('date=')[1]
+      return { dates, date, md: `正文 ${date}` }
+    },
+  })
+  try {
+    const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[0], md: `正文 ${dates[0]}` } })
+    button(card(app.render(), '每日报告').node, '选一个日子').props.onClick()
+    let input = findAll(card(app.render(), '每日报告').node, (n) => n.type === 'input' && n.props.type === 'date')[0]
+    // 9 月一份报告都没有：不该硬打开一份空的，而是把月历翻过去——
+    // 让她看见「这个月她没醒过」，而不是以为按钮坏了。
+    input.props.onChange({ target: { value: '2026-09-03' } })
+    const sep = card(app.render(), '每日报告')
+    assert.match(text(sep.node), /2026 年 9 月/, '写到哪个月就翻到哪个月')
+    const sepDays = findAll(sep.node, (n) => n.type === 'button' && /^\d{1,2}$/.test(text(n)))
+    assert.equal(sepDays.length, 0, '9 月没有报告，一格能点的都没有')
+
+    // 有报告的那天：写完直接打开。
+    input = findAll(sep.node, (n) => n.type === 'input' && n.props.type === 'date')[0]
+    input.props.onChange({ target: { value: dates[20] } })
+    await new Promise((r) => setTimeout(r, 0))
+    const after = card(app.render(), '每日报告')
+    assert.match(text(after.node), new RegExp(`正在看 ${dates[20]}`), '写完就打开那一天')
+    assert.match(text(after.node), new RegExp(`正文 ${dates[20]}`))
   } finally { restore() }
 })
 
