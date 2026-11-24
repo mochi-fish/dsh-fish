@@ -773,7 +773,7 @@ test('她一次读多少字幕：页面上两档可选，选完界面跟着变',
 })
 
 // ---------------------------------------------------------------------------
-// 每日报告的日期条：收成一行（2026-11-24，用户 m01411）
+// 每日报告的日期条：收成两行（2026-11-24，用户 m01411 / m01579）
 // ---------------------------------------------------------------------------
 
 /** 往前数 n 天，写成 YYYY-MM-DD（含当天）。 */
@@ -787,31 +787,55 @@ function daysBack(n, end = '2026-11-24') {
   return out
 }
 
-test('每日报告：日期再多也只占一行，最近七天在外、更早的按月收进下拉', async () => {
+test('每日报告：最近十天在外面，更早的另起一行按月收进下拉', async () => {
   const dates = daysBack(40)
   const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[0], md: '正文' } })
   const c = card(app.render(), '每日报告')
   const dateBtns = findAll(c.node, (n) => n.type === 'button' && /^\d{4}-\d{2}-\d{2}$/.test(text(n)))
-  assert.deepEqual(dateBtns.map(text), dates.slice(0, 7), '只有最近七天是按钮')
+  assert.deepEqual(dateBtns.map(text), dates.slice(0, 10), '只有最近十天是按钮')
+  assert.equal(
+    findAll(c.node, (n) => n.type === 'button' && /^(前|后)一天$/.test(text(n))).length, 0,
+    '前一天 / 后一天不要了（用户 m01579）',
+  )
   const sel = findAll(c.node, (n) => n.type === 'select')
   assert.equal(sel.length, 1, '更早的要有一个下拉')
   assert.equal(sel[0].props.value, '', '现在看的是最近那份，下拉不该替它选一个旧日子')
   const opts = findAll(sel[0], (n) => n.type === 'option')
-  assert.equal(opts.length, 1 + dates.length - 7, '下拉里是全部旧日子，加上一个占位的头')
+  assert.equal(opts.length, 1 + dates.length - 10, '下拉里是全部旧日子，加上一个占位的头')
   const groups = findAll(sel[0], (n) => n.type === 'optgroup')
   assert.ok(groups.length >= 1, '旧日子要按月分组')
   assert.ok(groups.every((g) => /^\d{4} 年 \d{1,2} 月$/.test(g.props.label)), `月份标题：${groups.map((g) => g.props.label)}`)
   assert.match(text(c.node), /共 40 份/, '总数写在旁边，不用数按钮')
-  assert.equal(button(c.node, '前一天').props.disabled, false, '最新一份还有前一天')
-  assert.equal(button(c.node, '后一天').props.disabled, true, '最新一份没有后一天')
+
+  // 下拉另起一行：它所在的那一行里没有日期按钮，旁边只有一句说明。
+  const selRow = findAll(c.node, (n) => Array.isArray(n.children) && n.children.includes(sel[0]))[0]
+  assert.ok(selRow, '下拉要在自己那一行里')
+  assert.equal(findAll(selRow, (n) => n.type === 'button').length, 0, '更早的那一行不混日期按钮')
+  assert.match(text(selRow), /选一个日子，那天的报告就在下面打开/, '这一行要说明选了会发生什么')
 })
 
-test('每日报告：翻到旧日子后，下拉里显示它，前后一天都能走', async () => {
-  const dates = daysBack(12)
-  const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[9], md: '正文' } })
-  const c = card(app.render(), '每日报告')
-  const sel = findAll(c.node, (n) => n.type === 'select')[0]
-  assert.equal(sel.props.value, dates[9], '下拉要把当前这天显示出来，不能装成没选')
-  assert.equal(button(c.node, '前一天').props.disabled, false)
-  assert.equal(button(c.node, '后一天').props.disabled, false)
+test('每日报告：从下拉里挑一个旧日子，那天的报告直接打开，也能导出', async () => {
+  const dates = daysBack(15)
+  const restore = stubFetch({
+    '/reports': (path) => {
+      const date = String(path).split('date=')[1]
+      return { dates, date, md: `正文 ${date}` }
+    },
+  })
+  try {
+    const app = await mount({ state: stateWith(), tab: 'data', reports: { dates, date: dates[0], md: `正文 ${dates[0]}` } })
+    let c = card(app.render(), '每日报告')
+    const sel = findAll(c.node, (n) => n.type === 'select')[0]
+    assert.equal(sel.props.value, '', '还没挑旧日子，下拉停在占位上')
+    assert.match(text(c.node), /点一个日期，那天的报告就在下面打开/, '没选之前先说清这块怎么用')
+
+    sel.props.onChange({ target: { value: dates[12] } })
+    await new Promise((r) => setTimeout(r, 0))
+    c = card(app.render(), '每日报告')
+    assert.equal(findAll(c.node, (n) => n.type === 'select')[0].props.value, dates[12], '挑过的日子要显示在下拉里')
+    assert.match(text(c.node), new RegExp(`正在看 ${dates[12]}`), '要说清现在看的是哪一天')
+    assert.match(text(c.node), new RegExp(`正文 ${dates[12]}`), '选完就把那天的报告打开，不用再点一次「展开报告」')
+    assert.ok(button(c.node, '导出报告'), '导出的还是当前这一天')
+  } finally { restore() }
 })
+
