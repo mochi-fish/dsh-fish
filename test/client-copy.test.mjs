@@ -997,3 +997,39 @@ test('看过的视频：搜到一个都没有时说清是没有，不是没读�
     assert.doesNotMatch(empty, /还没?\s*有记录/, '不能说成没有记录')
   } finally { stop() }
 })
+
+// ---------------------------------------------------------------------------
+// 成长天数（2026-11-25，用户 m00361 选 A）
+// 天数没有上限：走过成长周期就是 31、50、100 天。分母 growthDays 是「成长周期」
+// （7–180 可调的节奏参数），不是配额，所以不能拼成「31 / 30」——那看着像进度溢出。
+// ---------------------------------------------------------------------------
+
+test('成长天数：天数在前，周期是后面的小字；满期标「已满」，不写成 31 / 30', async () => {
+  const { render } = await mount({
+    state: stateWith({ day: 31, growthDays: 30, stage: 4, stageName: '整合', stageForced: true, pendingGate: null }),
+  })
+  const r = row(render(), '已成长天数')
+  assert.match(r.value, /^31 天/, `天数要在最前面：${r.value}`)
+  assert.match(r.value, /成长周期 30 天 · 成长期已满/, `走过周期要标「已满」：${r.value}`)
+  assert.doesNotMatch(r.value, /31\s*\/\s*30/, '别再写成进度条式的 31 / 30')
+  assert.match(r.tip, /不封顶/, `悬停要说清天数不封顶：${r.tip}`)
+})
+
+test('成长天数：周期改成 20 / 60 / 90 天，副注跟着变；没满期不写「已满」', async () => {
+  for (const g of [20, 60, 90]) {
+    const { render } = await mount({ state: stateWith({ day: 12, growthDays: g }) })
+    const v = row(render(), '已成长天数').value
+    assert.match(v, /^12 天/, `天数在前：${v}`)
+    assert.match(v, new RegExp(`成长周期 ${g} 天`), `周期要跟着配置变（${g} 天）：${v}`)
+    assert.doesNotMatch(v, /已满/, `第 12 天还没满 ${g} 天的周期：${v}`)
+  }
+})
+
+test('页头也按天数直接写，不再出现「x / y 天」', async () => {
+  const { render } = await mount({
+    state: stateWith({ day: 31, growthDays: 30, stage: 4, stageName: '整合', stageForced: true }),
+  })
+  const sub = findAll(render(), (n) => hasClass(n, 'sub')).map(text).join('')
+  assert.match(sub, /已成长 31 天/, `页头要给总天数：${sub}`)
+  assert.doesNotMatch(sub, /31\s*\/\s*30/, `页头别再写 31 / 30：${sub}`)
+})

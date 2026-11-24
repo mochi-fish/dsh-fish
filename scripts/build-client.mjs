@@ -65,7 +65,21 @@ export function buildClientSource(root = ROOT) {
   return { code: chunks.join('\n'), parts }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+// 是否「被直接执行」的判定。
+// 2026-11-25：原来直接比 path.resolve(process.argv[1]) 与 import.meta.url，
+// 仓库从目录联接（junction / symlink）进来时 argv[1] 走的是联接路径、import.meta.url
+// 已被 Node 解成真实路径，两边永远不等 ⇒ 脚本静默什么都不做、还返回 0（构建看着成功但没重打）。
+// 所以两边都 realpath 一次再比。
+const isMain = (() => {
+  const entry = process.argv[1]
+  if (!entry) return false
+  const self = fileURLToPath(import.meta.url)
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(self)
+  } catch {
+    return path.resolve(entry) === self
+  }
+})()
 if (isMain) {
   const checkOnly = process.argv.includes('--check')
   const { code, parts } = buildClientSource(ROOT)
