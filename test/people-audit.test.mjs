@@ -147,3 +147,45 @@ test('改口：被 revise 改掉的旧判断退场，改过口的留痕', () => 
   assert.match(page, /refs 填那条的 id/)
 })
 
+
+/**
+ * 2026-11-24 第二轮审计：她关于{T}的判断多数不带 `who`（靠 topic 写称呼挂到人身上），
+ * 体检从前按事件数，于是身份段里摆着「你对猫有过一句准话」，观测台却说 0 条。
+ */
+test('体检：靠称呼挂到{T}名下的判断也算数，不只看带 who 的事件', () => {
+  const events = [
+    ev({ id: 'h1', ts: at(0), type: 'heard', text: '我叫阿明。', who: { id: 'owner', name: '' } }),
+    ev({ id: 'h2', ts: at(1), type: 'utterance', text: '以后叫你猫。' }),
+    ev({ id: 'h3', ts: at(2), type: 'utterance', text: '猫这人嘴硬心软。', topic: '猫' }),
+  ]
+  const out = examine(events)
+  assert.equal(out.people.ownerJudged, 1, '身份段摆着一条，体检就得数到一条')
+})
+
+/**
+ * 2026-11-24 第二轮审计：预算从前按换称呼**之前**的 `{T}` 算，称呼一长这段就悄悄超了
+ * `PEOPLE_SECTION_MAX`——而它现在是核心段，超出来的那部分从别处扣。
+ */
+test('身份段：称呼再长，这一段也不会超过自己的上限', () => {
+  const people = [
+    {
+      id: 'owner',
+      name: '一只特别特别长的称呼一只特别特别长的称呼',
+      nameOnly: false,
+      firstAt: T0,
+      lastAt: T0,
+      times: 3,
+      nightTimes: 0,
+      spanDays: 0,
+      judgmentIds: [],
+      judged: 0,
+      judgments: [{ id: 'j1', at: T0, text: '猫这人嘴硬心软。', guess: false, verdict: null, changedFrom: '' }],
+      changed: [],
+      said: [],
+      didTo: [],
+    },
+  ]
+  const model = { name: people[0].name, people, day: 20, firstMetAt: T0 }
+  const body = peopleSection(model, { others: true, maxChars: 120 })
+  assert.ok(body.length <= 120, `实际 ${body.length} 字，超过 120`)
+})

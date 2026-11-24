@@ -120,3 +120,32 @@ test('开关关着：别人一个都翻不出来', async () => {
     await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 })
+
+/**
+ * 2026-11-24 审计：从前这里自己调 `peopleOf(events)`，不传她给{T}起的称呼，
+ * 于是三件事同时错——主人那一行没名字、靠 `topic` 写称呼的判断挂不上、
+ * 她按名单里写的字去查还查不到。身份段里摆着「你对猫有过一句准话」，
+ * 翻出来却是空的；名单写着「主人」，查「主人」却「没找到」。
+ */
+test('她怎么称呼{T}，这一页就怎么写：判断挂得上、名单里是那个称呼、能查得到', async () => {
+  const named = [
+    { id: 'ev_01DDDDDDDDDDDDDDDDDDDDDDDD', type: 'heard', ts: T1, text: '我叫阿明。', who: OWNER },
+    { id: 'ev_01EEEEEEEEEEEEEEEEEEEEEEEE', type: 'utterance', ts: T1, text: '以后叫你猫。' },
+    { id: 'ev_01FFFFFFFFFFFFFFFFFFFFFFFF', type: 'utterance', ts: T2, text: '猫这人嘴硬心软。', topic: '猫' },
+  ]
+  const root = await tmpRoot(named, { people: { others: { enabled: false } } })
+  try {
+    const t = toolFor(root)
+
+    const one = await t.execute({ name: '猫' })
+    assert.equal(one.found, true, '名单里写的是哪个字，就得能用那个字查到')
+    assert.match(one.text, /^## 猫/m, '标题跟着称呼走，不再退回代词')
+    assert.match(one.text, /嘴硬心软/, '身份段里摆着的那条判断，翻出来也要在')
+
+    const list = await t.execute({ list: true })
+    assert.match(list.text, /猫/)
+    assert.doesNotMatch(list.text, /主人/, '不写死「主人」——他和大肥鱼是什么关系是他们自己定的')
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+  }
+})
