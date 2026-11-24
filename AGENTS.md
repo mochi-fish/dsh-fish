@@ -73,7 +73,7 @@
 node --test
 ```
 
-当前基线 **3311 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
+当前基线 **3313 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
 
 按环境挑跑法：
 
@@ -327,7 +327,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 
 **会被认的**：插件自己建会话时（`asHerSession()` 窗口，`lib/home.js` / `lib/say.js`）、重启时从 `home.json` / `channels.json` 读回、认回旧窗口、以及桥自建会话在第一封外面来的信之后认领。
 
-**桥来信的判据**（`lib/claim.js` 的 `isBridgeMessage()`）：`kind === 'user'` **且**（`scene === 'group'` / `guest === true` / 判成 `human` 但没有 `clientTimeZone`）。`kind === 'user'` 是硬门槛：宿主 `prompt()` 空正文时写 `retry`，`classifyMessage` 兜底又会把不认识的 kind 当人——放宽这一条，他屋里普通会话点一次「重试」就会被认成她。
+**桥来信的判据**（`lib/claim.js` 的 `isBridgeMessage()`）三种之一：① `source.bridge === true`（桥显式声明，1.1.1 起的契约）；② `kind` 是 `plugin:<插件名>` 且不是 `plugin:dsh-fish`、不带 `fish` 标记（直接 `followup` 的 QQ 桥走这条）；③ `kind === 'user'` **且**（`scene === 'group'` / `guest === true` / 判成 `human` 但没有 `clientTimeZone`）。第三条里的 `kind === 'user'` 仍是硬门槛：宿主 `prompt()` 空正文时写 `retry`，`classifyMessage` 兜底又会把不认识的 kind 当人——放宽它，他屋里普通会话点一次「重试」就会被认成她。① 与 ② 不受这条限制，但都排除了 `retry` 与空 kind。
 
 **不会被认的**：他自己开在她屋里的会话（本地字一定带 `clientTimeZone`）、任何不在她屋里的会话、走 `/say` 或复用 `sessionId` 的桥、插件自己的消息（`source.fish === 'note'` / `PLUGIN_RPC`）、宿主上下文（无 `source`）、自起 kind 的来信。
 
@@ -347,7 +347,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test` 3311 全绿
+- [ ] `node --test` 3313 全绿
 - [ ] 改了 `lib/client/*.js` 或 `lib/session-pressure-formulas.js` 的话，跑过 `node scripts/build-client.mjs` 重产 `lib/client.js`
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明

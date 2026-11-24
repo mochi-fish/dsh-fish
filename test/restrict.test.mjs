@@ -159,6 +159,31 @@ test('seedHerSessions 从 home.json 与 channels.json 读回她的会话', async
   resetHerSessions()
 })
 
+test('seedHerSessions 认得 channels.json 的三种形状（list / channels / 顶层数组）', async () => {
+  resetHerSessions()
+  // 2026-11-24 外部报告：saveChannel 写的是 { version, list }，seedHerSessions 只读
+  // .channels / 顶层数组 → 重启读回空表，桥的会话 id 全丢、身份段恢复不了。
+  for (const [name, body] of [
+    ['list', JSON.stringify({ version: 1, list: [{ key: 'qq:1', sessionId: 'session-l' }] })],
+    ['channels', JSON.stringify({ version: 1, channels: [{ key: 'tg:1', sessionId: 'session-m' }] })],
+    ['array', JSON.stringify([{ key: 'dc:1', sessionId: 'session-n' }])],
+  ]) {
+    const dir = await mkdtemp(join(tmpdir(), `fish-seed-${name}-`))
+    await writeFile(join(dir, 'home.json'), JSON.stringify({ sessionId: 'session-a' }))
+    await writeFile(join(dir, 'channels.json'), body)
+    seedHerSessions(dir)
+    const her = join(dir, 'home')
+    for (const id of ['a', name === 'list' ? 'l' : name === 'channels' ? 'm' : 'n']) {
+      assert.equal(
+        isHerAgent({ session: { header: { id: `session-${id}`, cwd: 'D:\\work' } } }, her),
+        true,
+        `${name} 形状读回 ${id}`,
+      )
+    }
+  }
+  resetHerSessions()
+})
+
 test('两个家在同一个进程里各认各的，不互相认领', () => {
   resetHerSessions()
   const homeA = 'C:\\fish-a\\home'

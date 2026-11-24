@@ -68,6 +68,16 @@ test('来信判据：群聊 / 群里的他 / 没有时区的 human 才算桥', (
   assert.equal(isBridgeMessage('group', { kind: 'retry', scene: 'group' }), false, '重试也不带场次')
   assert.equal(isBridgeMessage('human', { kind: 'qq', rpcId: 'r-2' }), false, '自己起名的 kind 不建会话，不靠这里认')
   assert.equal(isBridgeMessage('human', {}), false, '没有 kind 的老形状不认，宁可漏一轮')
+
+  // 2026-11-24 外部报告：有些桥不走宿主 prompt()，直接 followup + createUserMessage，
+  // kind 写自己的 'plugin:<名字>'。这种只管插件中转，不能把 ③ 的门槛放宽。
+  assert.equal(isBridgeMessage('context', { kind: 'plugin:dsh-onebot' }), true, '插件中转的私聊来信算')
+  assert.equal(isBridgeMessage('context', { kind: 'plugin:dsh-fish' }), false, '自己的消息不算')
+  assert.equal(isBridgeMessage('context', { kind: 'plugin:dsh-fish', fish: 'note' }), false, '自己的便条不算')
+  assert.equal(isBridgeMessage('context', { kind: 'plugin:dsh-fish', fish: 'note', bridge: true }), true, '桥显式声明优先（给自己留的逃生口）')
+  // 桥显式声明也挡掉宿主的 retry / 空 kind，别把误伤那股风放回来。
+  assert.equal(isBridgeMessage('human', { kind: 'retry', bridge: true }), false)
+  assert.equal(isBridgeMessage('human', { bridge: true }), false)
 })
 
 test('登记只跑一次；两个家、两条会话互不串', () => {
@@ -161,5 +171,32 @@ test('桥接全链路：群里的话进来才认领，本地客户端的字不�
 
   ctx.emit('session/event', session, msg({ kind: 'user', rpcId: 'r-bridge-1' }))
   assert.equal(claimed, 1, '桥 prompt 进来的话没有时区但带 rpcId，第一封到就认')
+  resetClaimWaiters()
+})
+
+test('插件中转的私聊来信也能认（dsh-onebot-qq 的 plugin: 前缀）', async () => {
+  const root2 = await mkdtemp(join(tmpdir(), 'fish-claim-relay-'))
+  const her = paths(root2).herDir
+  const ctx2 = fakeCtx()
+  registerTurns(ctx2, { root: root2, log: () => {} })
+
+  const ghost = 'session-bridge-4'
+  let claimed = 0
+  whenHers(ghost, her, () => { claimed += 1 })
+  const session = { id: ghost, header: { cwd: her } }
+  const msg = (source) => ({
+    type: 'user/message',
+    data: { id: `m-${Math.random()}`, role: 'user', content: [{ type: 'text', text: '在吗' }], source },
+  })
+
+  // 自己插件的记账不算。
+  ctx2.emit('session/event', session, msg({ kind: 'plugin:dsh-fish' }))
+  ctx2.emit('session/event', session, msg({ kind: 'plugin:dsh-fish', fish: 'note' }))
+  assert.equal(claimed, 0, '自己的消息不认领')
+
+  // 2026-11-24 外部报告：dsh-onebot-qq 用 followup + createUserMessage 直接投，
+  // kind 写 'plugin:dsh-onebot'，不经过宿主 prompt()，但确实是外面来的 QQ 私聊。
+  ctx2.emit('session/event', session, msg({ kind: 'plugin:dsh-onebot' }))
+  assert.equal(claimed, 1, '插件中转的私聊来信要认')
   resetClaimWaiters()
 })
