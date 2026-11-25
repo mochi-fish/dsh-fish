@@ -241,6 +241,18 @@ test('来源判据：桥先登记过的那一轮，按登记走（issue #96）',
     declareSource({ rpcId: 'bridge-p1', scene: 'private' })
     assert.equal(classifyMessage({ source: { kind: 'user', rpcId: 'bridge-p1' } }), 'human')
     // 桥自己发起的轮次（定时提醒、转发）：不是人说的话
+    // 2026-11-26（外部报告 m06323）：桥报了「谁说的」，却没报 scene。
+    // 现场是「群聊记下来全是{T}说的」——只带 speakerName 的群消息落到 human，
+    // 经 hearTurn 记成 heard（他说过的话）。报了别人、又不是 owner:true，就是别人在说话。
+    declareSource({ rpcId: 'bridge-s1', speakerId: 'qq:7', speakerName: '张三' })
+    assert.equal(classifyMessage({ source: { kind: 'user', rpcId: 'bridge-s1' } }), 'group')
+    // 桥要是给他自己的消息也报 speaker，必须同时报 owner:true，否则会被当成别人。
+    declareSource({ rpcId: 'bridge-s2', speakerId: 'qq:7', speakerName: '张三', owner: true })
+    assert.equal(classifyMessage({ source: { kind: 'user', rpcId: 'bridge-s2' } }), 'human')
+    // 什么都没报：还按他本人算，行为和以前一字不差。
+    declareSource({ rpcId: 'bridge-s3' })
+    assert.equal(classifyMessage({ source: { kind: 'user', rpcId: 'bridge-s3' } }), 'human')
+
     declareSource({ rpcId: 'bridge-t1', machine: true })
     assert.equal(classifyMessage({ source: { kind: 'user', rpcId: 'bridge-t1' } }), 'plugin')
     // 没登记的桥保持 0.9.5 的判法：带 rpcId 就是有人代他递话

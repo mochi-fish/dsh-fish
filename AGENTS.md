@@ -73,7 +73,7 @@
 node --test
 ```
 
-当前基线 **3328 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
+当前基线 **3333 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
 
 按环境挑跑法：
 
@@ -135,6 +135,10 @@ POST /dsh-fish/say
 - **`scene: 'group'`** → 默认按 `channel` 自建/复用一间房（记在 `channels.json`），cwd 仍是她的屋子，身份、工具面、白板都照旧——**还是同一个人，只是换了个房间说话**。想让所有群并进书房，传 `room: 'house'`。
 - **`guest: true`** → 房间照开（如果 `room` 要求），但这条不算他来过：不写 `seen:`、不 `bumpTurns`、不触发轮换；正文标「有个不是他的人跟你说话」，她不会把群友当成主人。
 - **`scene: 'group'` + `owner: true`**（2026-11-08，用户 m00394）→ 群里**他本人**说的话。进记忆（写一条 `heard`，带 `scene:'group'`，她翻到时读到的是「他在群里说：…」；设置里「记你原话的间隔」为 0 时不记，跟私聊同一个开关），但不进生命体征：不写 `seen:`、不 `bumpTurns`、不触发轮换、不进书房桶。**群友的话（不带 `owner`）默认一条都不进记忆**——这是产品边界，不是遗漏。1.0.9 起多了一颗**默认关**的开关（`people.others.rememberOthers`）：打开后群里别人说的那一句会落成本机记忆（`voice` + `scene:'group'`，一天 5 条、一条 160 字、同一个人一天 1 条，不知道是谁说的不记），但它只是凭据——`voice` 永远进不了判断。写进去撤不回来（`events.jsonl` 只能追加），所以必须由人自己开。
+
+**桥报「谁说的」就得报「是不是他」（2026-11-26，外部报告）。** 只要带了 `speaker` / `speakerId` 而没带 `scene`，插件现在按「别人在说」处理（`classifyMessage` → `group`），不再落成 `heard`。以前这种情况落到末尾的 `human` 分支，于是群里几十个人的话全被记成他的原话——那是「他对她说过的话」的类型，她会把别人的话当成他说的。所以桥给**他本人**的消息报 speaker 时，必须同时传 `owner: true`；不报 speaker 的仍然照老行为按他本人算，一个字不变。
+
+`/say` 这条路也补上了另一半：群友那一句会按 `people.others.rememberOthers` 落成 `voice` + `scene:'group'` + `who`（开关关着一条都不落）。此前只有走宿主的 prompt 那条路才会记，而桥统一投 `/say` 的部署里，「记下群里别人说的话」完全无效。
 
 **常见布局都由桥表达，插件不写死：** 全部并进书房（不传 `channel`，或 `room:'house'`）；每群一间（`channel:'qq-group:<群号>'` + `group`）；群友私聊每人一间（`channel:'qq:dm:<QQ号>'` + `private` + `room:'channel'` + `guest:true`）；群友私聊进书房但标身份（`private` + `guest:true` + `speaker`）；只有 @ 她才进（桥侧过滤，不投递就不建房）。
 
@@ -349,7 +353,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test` 3328 全绿
+- [ ] `node --test` 3333 全绿
 - [ ] 改了 `lib/client/*.js` 或 `lib/session-pressure-formulas.js` 的话，跑过 `node scripts/build-client.mjs` 重产 `lib/client.js`
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明

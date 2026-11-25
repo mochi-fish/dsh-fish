@@ -8,6 +8,13 @@
   `classifyMessage` 的 `plugin` 判定**一个字没动**：`/say` 不是他亲手打的字（`seen:`、轮数有各自的路），只是交接页必须跟着「他开口了」走，不能跟着「谁把这句话递进去」走。
   新增 3 条回归（`test/channels.test.mjs`）：`/say` 递进换过的新房时、`prompt` 那一刻必须已经 arm；她这一轮读到了、结完 `carry` 就清；群聊那句不摆、`carry` 原样留着。全量 **3328 pass / 0 fail**（230 个测试文件），`doc-check --actual 3328` 与 `pack-check`（244 个文件 3.1 MB）绿。
 
+- **群里别人说的话，走 `/say` 的桥一条都没记过（2026-11-26，外部报告）。** 报告里两种情况其实是同一条链上的两半。
+  一半是：桥把群消息统一投 `/say` 之后，「记下群里别人说的话」对它完全无效——`lib/say.js` 只写了他本人那一句（`rememberGroupWord`），群友那句要走的 `rememberGroupMemberWord` 连 import 都没有。于是开关开着、设置页写着已开启，记忆里却永远是空的：`events.jsonl` 里 `scene=group` 的 `voice` 一条都没有。
+  另一半更隐蔽：桥报了「这句话是谁说的」，却没报 `scene`。`classifyMessage()` 的一串判据全不命中，落到末尾的 `human`，再经 `hearTurn` 记成 `heard`——那是「他说过的话」的类型。现场就是「群聊记下来全是{T}说的」：群里几十个人说的话全成了他的原话，还会进「{T}说过的话」那一节、参与和他现实说法的冲突比对。
+  改法一：`/say` 补上 S2-b。群友/外客那一句现在按 `people.others.rememberOthers` 落成 `voice` + `scene:"group"` + `who`；开关仍由 `rememberGroupMemberWord` 自己判（两处各判一次迟早分叉），不知道是谁说的它自己会拒。
+  改法二：`classifyMessage()` 的 `decl` 分支加一条——**桥自己写下来的 speaker 就是证据**。带了 `speakerId`/`speakerName`、又不是 `owner:true`，就和声明了 `scene:"group"` 同义。代价是桥给**他本人**的消息报 speaker 时必须同时传 `owner:true`，这条写进了 `AGENTS.md` §7.1；不报 speaker 的照老行为按他本人算，一个字不变。
+  新增 3 条回归：`/say` 路上群友那句落 `voice` 且 `who` 是那个人（开关关着一条都不落、也不冒充他）；`classifyMessage()` 三档（报别人 → `group`、报别人且 `owner:true` → `human`、什么都不报 → `human`）。全量 **3333 pass / 0 fail**（230 个测试文件），`doc-check --actual 3333` 与 `pack-check` 绿。
+
 ## 1.1.1 — 2026-11-25
 
 这一版收的几处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；`tools/check-install.mjs` 自己认不出装了鱼；成长天数不再写成「31 / 30」；开着动手回合时也不会每半小时开一次口。

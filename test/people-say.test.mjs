@@ -267,3 +267,41 @@ test('出口脱敏在前：她叫主人的名字不进群聊记忆', async () =>
     assert.doesNotMatch(lines[0].text, /时梦尘/, '名字只留在私下')
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
 })
+
+// 2026-11-26（外部报告 m06323）：桥把群消息统一投 `/say`，这条路原来只记了他的那句
+// （`isGroup && isOwner`），于是「记下群里别人说的话」这颗开关对 /say 桥完全无效——
+// 开着事件流里也一条都没有。群友那一句现在落成 `voice`（不是 `heard`：heard 是「他说的」）。
+test('/say 这条路上，群友的话也落一笔：开关开着才落，落成 voice 不是 heard', async () => {
+  const root = await tmpRoot()
+  try {
+    await seed(root)
+    await config(root, { enabled: true, rememberOthers: true })
+    const { ctx, emit } = fakeCtx()
+    speak(ctx, emit, '嗯，我在听。')
+    await sayToHer(ctx, '老王今天在群里刷了一整晚的屏，你们看见没', {
+      root, waitMs: 5_000, channel: 'qq-group:1', scene: 'group', speaker: '张三', speakerId: 'qq:10001',
+    })
+    const { events } = await readEvents(root)
+    const voices = events.filter((e) => e.type === 'voice' && e.scene === 'group')
+    assert.equal(voices.length, 1, '开关开着，群友那句要落一条')
+    assert.match(voices[0].text, /刷了一整晚的屏/)
+    assert.deepEqual(voices[0].who, { id: 'qq:10001', name: '张三' })
+    assert.equal(events.filter((e) => e.type === 'heard').length, 0, '群友的话不许冒充他说的')
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+test('/say 这条路上，开关关着就一条都不落（也不冒充他）', async () => {
+  const root = await tmpRoot()
+  try {
+    await seed(root)
+    await config(root, { enabled: true })
+    const { ctx, emit } = fakeCtx()
+    speak(ctx, emit, '嗯。')
+    await sayToHer(ctx, '老王今天在群里刷了一整晚的屏，你们看见没', {
+      root, waitMs: 5_000, channel: 'qq-group:1', scene: 'group', speaker: '张三',
+    })
+    const { events } = await readEvents(root)
+    assert.equal(events.filter((e) => e.type === 'voice').length, 0, '默认关着，一条都不留')
+    assert.equal(events.filter((e) => e.type === 'heard').length, 0, '群友的话不许冒充他说的')
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
