@@ -165,6 +165,11 @@ test('参数壳：DSML 残标开头的半截壳，收尾不留残尾（F）', ()
   assert.equal(stripToolMarkup(raw), '好。明天九点。')
   // 原来会留 `</parameter></invoke>`：DSML 分支只删了开标签那半截
   assert.equal(stripToolMarkup(raw).includes('</'), false)
+  // issue #166 第三轮：三个函数要对同一段给同一个答案，`stripToolShell` 也要收 F
+  assert.equal(stripToolShell(raw), '好。明天九点。')
+  // 但带 DSML 残标的非 text 调用体不该被当成正文（补 `<` 之后认不出 text 就原样返回）
+  const foreign = '好。<｜｜DSML｜｜ parameter name="action">add</parameter>'
+  assert.equal(stripToolShell(foreign), foreign)
 })
 
 test('assistantText：参数壳不会被记成她的话（issue #166）', () => {

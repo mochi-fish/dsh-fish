@@ -22,6 +22,11 @@
   改法二：`classifyMessage()` 的 `decl` 分支加一条——**桥自己写下来的 speaker 就是证据**。带了 `speakerId`/`speakerName`、又不是 `owner:true`，就和声明了 `scene:"group"` 同义。代价是桥给**他本人**的消息报 speaker 时必须同时传 `owner:true`，这条写进了 `AGENTS.md` §7.1；不报 speaker 的照老行为按他本人算，一个字不变。
   新增 3 条回归：`/say` 路上群友那句落 `voice` 且 `who` 是那个人（开关关着一条都不落、也不冒充他）；`classifyMessage()` 三档（报别人 → `group`、报别人且 `owner:true` → `human`、什么都不报 → `human`）。全量 **3333 pass / 0 fail**（230 个测试文件），`doc-check --actual 3333` 与 `pack-check` 绿。
 
+- **三个函数对同一种形状给两个答案（2026-11-26，issue #166 第三轮，@mxc881031 复测）。** 他拿 1.1.1 重跑原来的 A–G 七条，记录层已经全干净：A–E、G 在 `stripToolMarkup` / `stripLeakedToolSyntax` 里都剥成真话，`hasLeakedToolSyntax` 七条全判 true，`｜｜DSML｜｜` 那支补的收尾标签也不留残尾。只剩 F（`<｜｜DSML｜｜ parameter name="text">…</parameter></invoke>`）在 `stripToolShell` 里原样返回——同一个输入，三个函数给出两个答案。
+  根因：F 的开标签被 DSML 残标打断了 `<`，配对扫 `SHELL_PAIR` 认不出来；记录层之所以干净，是因为 `stripToolMarkup` 后面还有 `｜｜` 那一支兜底，`stripToolShell` 自己没有。
+  改法：`stripToolShell` 在配对扫之前只补回这一笔（`<｜｜DSML｜｜` 紧跟 `parameter` 时换成 `<`），别的一个字符不动；补完仍然认不出 `name="text"` 段的就按原样返回——那是 DSML 形态的调用体（`action`、`query` 之类），不该当正文。配对扫描抽成 `scanShellPairs()`，两个函数用同一份逻辑。
+  `test/markup.test.mjs` 的 F 用例补两条断言（`stripToolShell` 与 `stripToolMarkup` 同答案；带 DSML 残标的非 `text` 调用体原样返回）。全量 **3333 pass / 0 fail**（230 个测试文件，条数没变，只加断言），`doc-check --actual 3333` 与 `pack-check` 绿。
+
 ## 1.1.1 — 2026-11-25
 
 这一版收的几处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；`tools/check-install.mjs` 自己认不出装了鱼；成长天数不再写成「31 / 30」；开着动手回合时也不会每半小时开一次口。
