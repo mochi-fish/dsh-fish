@@ -117,6 +117,47 @@ test('段内降级：长的放不下就换短的，短版也放不下才整段�
   }
 })
 
+test('段内阶梯：一条放不下时留指针，不是整段消失', () => {
+  const core = { text: '## 现在\n今天在。', keep: true }
+  const head = '## 你反复想起过的事'
+  const full = `${head}\n- ${'长'.repeat(80)}\n- ${'次'.repeat(40)}\n这些到现在还热着。`
+  const one = `${head}\n- ${'长'.repeat(80)}`
+  const pointer = `${head}\n（有几件事你反复想起，这里放不下；原文还在，你翻 her_recall 找得到。）`
+  const coreCost = core.text.length + 1
+  const sec = { text: full, keep: false, id: 'solid', alts: [one, pointer] }
+
+  // 长版放不下、一条放得下：缩到一条
+  {
+    const plan = assembleWithPlan([core, sec], coreCost + one.length + 1)
+    const row = plan.plan.find((p) => p.id === 'solid')
+    assert.equal(row.kept, true)
+    assert.equal(row.shrunk, true)
+    assert.ok(plan.text.includes('长'))
+    assert.ok(!plan.text.includes('这些到现在还热着'), '缩的时候先省掉收尾那句')
+  }
+
+  // 连一条都放不下：整段变成一句指针
+  {
+    const plan = assembleWithPlan([core, sec], coreCost + pointer.length + 1)
+    const row = plan.plan.find((p) => p.id === 'solid')
+    assert.equal(row.kept, true, '指针放得下就不许整段消失')
+    assert.ok(plan.text.includes('her_recall'))
+    assert.ok(!plan.text.includes('长'), '最后一级不摆原文')
+  }
+})
+
+test('固化段自带两级退路：先一条，再一句指针', () => {
+  const m = model({
+    solid: [{ id: 's1', text: '我不喜欢被催。', since: '2026-11-01T00:00:00.000Z', mentions: 5, verified: 0, status: 'active' }],
+  })
+  const sec = buildSections(m, { shown: 3 }).find((s) => s.text.startsWith('## 你反复想起过的事'))
+  assert.ok(sec, '固化段要在')
+  assert.equal(sec.alts.length, 2)
+  assert.ok(sec.alts[0].includes('我不喜欢被催'))
+  assert.ok(sec.alts[1].includes('her_recall'))
+  assert.ok(!sec.alts[1].includes('我不喜欢被催'), '最后一级只剩指针，不摆原文')
+})
+
 test('可选段顺序：她拒绝过的排在「你对自己的说法」前头', () => {
   // 顺序按「谁更像她这个人」排，不按产生时间：拒绝过是她做过的选择，
   // 说法只是这个月的总述。两人互换之后，同样的预算先留住的是前面那些。

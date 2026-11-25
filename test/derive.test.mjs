@@ -604,6 +604,18 @@ test('长反思里只有一个小句在说同一件事，也算又提了一次',
   assert.equal(b.mentions, 2, '自己那次 + 小句对上的一次')
 })
 
+// 2026-11-26（issue #170 续，用户 m00785）：2–3 字的小句不再算「又提了一次」。
+// 外部报告里最弱那条 solid 就是靠「我认」这种两字口头语连了三次——两边只有
+// 一两个二元组，Dice 恒为 1.0，跟说了什么没关系。
+test('两三个字的口头语不算一次提及', () => {
+  const m = deriveSelf([
+    ev('ev_a', 'utterance', 1, '我把话收窄了，标准也别定死，我认。'),
+    ev('ev_b', 'utterance', 4, '我认。'),
+  ], { now: T0 + 5 * DAY_MS })
+  const b = m.beliefs.find((x) => String(x.text).startsWith('我把话收窄'))
+  assert.equal(b.mentions, 1, '「我认」只有两个字，不该把两句不相干的话算成同一件事')
+})
+
 // 2026-11-22（用户 m00360 第 6 条）：同一个 topic 标签跨天再提一次，不要求措辞相近。
 test('同一个 topic 跨天再提一次也算，换了说法照样算', () => {
   const m = deriveSelf([
