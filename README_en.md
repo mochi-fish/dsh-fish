@@ -39,7 +39,7 @@
 - 🌊 **[Paired Single-Session Companion Architecture: `mochi-fish/fish-sessionless`](https://github.com/mochi-fish/fish-sessionless)**
 
 > [!NOTE]
-> **Current Version: `1.0.9`**. This release starts letting her *know people*: a 「你认识的{T}」 section in the identity document, judgements that can be attached to a specific person, and 「说法变了 / 两句话对不上」 that finally fire; chat channels get their own opt-in switches (off by default). It also folds in a batch of fixes (login for scheduled browsing and reply reading, per-day version limits for works, appointment quotas, weekly consumption caps, honest memory-page counts, handoff pages after crash recovery, de-duplicated prompt text) and one behaviour-neutral split — client shards, observatory modules, and a zero-dependency type layer. Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
+> **Current Version: `1.1.1`**. This release is all follow-up fixes: the identity claim on write paths now keys off session id, so a session that changed its working directory is no longer treated as "another home"; bridges that create sessions outside her home can claim them via `config.bridge.dirs` or an explicit `POST /claim` guarded by a local token; growth days read as "31 days" with "growth cycle 30 days" as a subline; `tools/check-install.mjs` recognises which profile actually installed her; and a proactive turn no longer fires every 30 minutes when the doing loop is on. Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 
