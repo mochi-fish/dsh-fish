@@ -99,7 +99,7 @@ async function run(proactive, turn) {
   return out
 }
 
-test('投递没落成：同一拍补一条 silent，drive-spend 不再是孤儿（2026-11-21）', async () => {
+test('投递没落成：同一拍记一条「没送到」，drive-spend 不再是孤儿（2026-11-26 改口径）', async () => {
   const root = await setup({})
   const h = host()
   const logs = []
@@ -115,8 +115,9 @@ test('投递没落成：同一拍补一条 silent，drive-spend 不再是孤儿�
   await sleep(80)
   const m = await metas(root)
   assert.ok(m.includes('drive-spend'), '这一拍已经花了劲儿')
-  assert.ok(m.includes('proactive-silent'), '同一拍要补一条 silent，账才对得上')
-  assert.ok(logs.some((l) => l.includes('记一次静默')), '日志要说清这一拍记成静默了')
+  assert.ok(m.includes('proactive-fail'), '这一拍没落成，记成没送到，不当成她选择不说')
+  assert.ok(!m.includes('proactive-silent'), '「她选择不说」和「没送到」不能混成一笔')
+  assert.ok(logs.some((l) => l.includes('没送到')), '日志要说清这一拍记成没送到')
   assert.ok(!logs.some((l) => l.includes('这一轮不记账')), '不能再留旧口径')
   s.dispose()
   clearWakeSection()
@@ -139,11 +140,75 @@ test('配了 sendTools：发送工具成功就算开口，不折', async () => {
   assert.equal(r.folded, 0)
 })
 
-test('发送失败：不算开口，也不折掉这次尝试', async () => {
+test('发送失败：不算开口，记成没送到（2026-11-26），也不折掉这次尝试', async () => {
   const r = await run({ sendTools: ['send_chat'] }, { tool: 'send_chat', isError: true })
   assert.ok(!r.meta.includes('proactive-turn'))
-  assert.ok(!r.meta.includes('proactive-silent'))
+  assert.ok(!r.meta.includes('proactive-silent'), '「她选择不说」和「没送到」要分开')
+  assert.ok(r.meta.includes('proactive-fail'))
   assert.equal(r.folded, 0)
+  assert.ok(r.logs.some((l) => l.includes('没送出去')))
+})
+
+test('调了发送工具、到这一轮结束都没等到结果：也算没送到，不当成「做了件事」', async () => {
+  const root = await setup({ sendTools: ['send_chat'] })
+  const h = host()
+  const logs = []
+  const s = startScheduler(h.ctx, { root, sessionId: 's-main', log: (...a) => logs.push(a.join(' ')) })
+  await s.tick()
+  const ping = h.followups.at(-1).message
+  h.emit({ type: 'turn/start', seq: 9 })
+  h.emit({ type: 'user/message', seq: 10, surfaceOp: 'append', data: ping })
+  h.emit({
+    type: 'assistant/message',
+    seq: 11,
+    surfaceOp: 'append',
+    data: { message: { id: 'a', role: 'assistant', content: [{ type: 'reasoning', text: REASON }, { type: 'tool-call', id: 'c1', name: 'send_chat', arguments: { text: '你好' } }] } },
+  })
+  h.emit({ type: 'turn/end', seq: 12 })
+  await sleep(60)
+  const m = await metas(root)
+  assert.ok(m.includes('proactive-fail'), '没有结果就是没有送达的证据')
+  assert.ok(!m.includes('proactive-turn'))
+  assert.ok(!m.includes('proactive-silent'))
+  assert.equal(h.appended.length, 0, '她试过，不能折掉')
+  assert.ok(logs.some((l) => l.includes('没送出去')))
+  s.dispose()
+  clearWakeSection()
+})
+
+test('发送工具一败一成：送出去了就是开口，不记没送到', async () => {
+  const root = await setup({ sendTools: ['send_chat'] })
+  const h = host()
+  const s = startScheduler(h.ctx, { root, sessionId: 's-main', log: () => {} })
+  await s.tick()
+  const ping = h.followups.at(-1).message
+  h.emit({ type: 'turn/start', seq: 9 })
+  h.emit({ type: 'user/message', seq: 10, surfaceOp: 'append', data: ping })
+  h.emit({
+    type: 'assistant/message',
+    seq: 11,
+    surfaceOp: 'append',
+    data: {
+      message: {
+        id: 'a',
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: REASON },
+          { type: 'tool-call', id: 'c1', name: 'send_chat', arguments: { text: '你好' } },
+          { type: 'tool-call', id: 'c2', name: 'send_chat', arguments: { text: '你好' } },
+        ],
+      },
+    },
+  })
+  h.emit({ type: 'tool/result', seq: 12, surfaceOp: 'append', data: { message: { role: 'tool', toolCallId: 'c1', isError: true, content: [{ type: 'text', text: 'x' }] } } })
+  h.emit({ type: 'tool/result', seq: 13, surfaceOp: 'append', data: { message: { role: 'tool', toolCallId: 'c2', isError: false, content: [{ type: 'text', text: 'x' }] } } })
+  h.emit({ type: 'turn/end', seq: 14 })
+  await sleep(60)
+  const m = await metas(root)
+  assert.ok(m.includes('proactive-turn'))
+  assert.ok(!m.includes('proactive-fail'), '话已经送到，失败的那一次不该盖掉结果')
+  s.dispose()
+  clearWakeSection()
 })
 
 test('配了 sendTools：只写正文不算开口，正文到不了人', async () => {
@@ -156,9 +221,10 @@ test('配了 sendTools：只写正文不算开口，正文到不了人', async (
   assert.doesNotMatch(line, /没什么要说的/)
 })
 
-test('配了 sendTools：发送失败再写一句正文，也不算开口', async () => {
+test('配了 sendTools：发送失败再写一句正文，也不算开口，仍记没送到', async () => {
   const r = await run({ sendTools: ['send_chat'] }, { tool: 'send_chat', isError: true, text: '发不出去，算了，等会儿再说吧。' })
   assert.ok(!r.meta.includes('proactive-turn'))
+  assert.ok(r.meta.includes('proactive-fail'), '正文到不了人，失败还是失败')
   assert.equal(r.folded, 0)
 })
 
@@ -191,6 +257,7 @@ test('调了别的工具不算开口，但这一轮留着', async () => {
   const r = await run({ sendTools: ['send_chat'] }, { tool: 'read' })
   assert.ok(!r.meta.includes('proactive-turn'))
   assert.ok(!r.meta.includes('proactive-silent'))
+  assert.ok(!r.meta.includes('proactive-fail'), '发的不是发送工具，不能记成没送到')
   assert.equal(r.folded, 0)
 })
 

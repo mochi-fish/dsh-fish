@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { DRIVE, deskHasMaterial, driveCost, driveOf } from '../lib/drive.js'
+import { DRIVE, deskHasMaterial, driveCost, driveOf, silentStreakOf } from '../lib/drive.js'
 
 const HOUR = 3_600_000
 const NOW = Date.parse('2026-11-05T09:00:00+08:00')
@@ -91,6 +91,15 @@ test('上次开口有人接了：不打折', () => {
   ]
   const r = driveOf({ events, now: NOW })
   assert.equal(r.damp, 1)
+})
+
+test('连着没送出去也降频：静默与失败都算「没落地」，真开口才清零（2026-11-26）', () => {
+  const quiet = { type: 'meta', text: 'proactive-silent:2026-11-05:1', ts: NOW - 3 * HOUR }
+  const failed = { type: 'meta', text: 'proactive-fail:2026-11-05:1', ts: NOW - 2 * HOUR }
+  const spoke = { type: 'meta', text: 'proactive-turn:2026-11-05:1', ts: NOW - 1 * HOUR }
+  assert.equal(silentStreakOf([quiet, failed]), 2)
+  assert.equal(silentStreakOf([quiet, failed, spoke]), 0, '说了话就清零')
+  assert.equal(silentStreakOf([spoke, failed]), 1, '只数最近这一段，不翻旧账')
 })
 
 test('活得越久，攒得越快一点：成长档位抬高底噪速度', () => {

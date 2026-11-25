@@ -25,6 +25,9 @@ import {
   silentToday,
   lastSilentAt,
   SILENT_MARK,
+  FAIL_MARK,
+  failsToday,
+  lastFailAt,
   SILENT_MAX_PER_DAY,
   SILENT_QUIET_MINUTES,
   idleHoursOf,
@@ -425,6 +428,47 @@ test('醒来后没开口的那几次：不占当天额度，但单独限次数�
   assert.equal(proactiveState({ config: ON, events: full, now }).why.length > 0, true)
   assert.match(proactiveState({ config: ON, events: full, now }).why, /太多次/)
   assert.ok(SILENT_QUIET_MINUTES >= 15, '静默间隔至少十五分钟，不然她会连着醒、连着不说')
+})
+
+test('没送出去的回合：单独记账、占静默封顶、隔 30 分钟（2026-11-26，用户 m00123）', () => {
+  const now = Date.now()
+  const dk = dateKey(new Date(now))
+  const base = [ev({ ts: new Date(now - 10 * 3_600_000).toISOString() })]
+  const fail = (m, id = `ev_x${m}`) => ev({
+    id,
+    type: 'meta',
+    text: `${FAIL_MARK}${dk}:${now - m * 60_000}`,
+    ts: new Date(now - m * 60_000).toISOString(),
+  })
+  const one = [...base, fail(120)]
+  assert.equal(turnsToday(one, dk), 0, '没送到不占开口额度')
+  assert.equal(silentToday(one, dk), 0, '没送到不算「她选择不说」')
+  assert.equal(failsToday(one, dk), 1)
+  assert.equal(lastFailAt(base), 0, '没失败过就是 0')
+  assert.equal(lastFailAt(one), now - 120 * 60_000)
+  // 两小时前失败过：不挡下一次。
+  assert.equal(proactiveState({ config: ON, events: one, now }).ok, true)
+
+  // 刚失败 5 分钟：隔一会儿再试；理由要写「没送出去」，不能写成她没开口。
+  const justNow = [...base, fail(5)]
+  const why = proactiveState({ config: ON, events: justNow, now }).why
+  assert.match(why, /没送出去/)
+  assert.doesNotMatch(why, /没开口/)
+
+  // 失败和静默共用封顶：三次静默 + 一次失败就把今天封满。
+  const mixed = [
+    ...base,
+    ...[300, 240, 180].map((m, i) => ev({
+      id: `ev_s${i}`,
+      type: 'meta',
+      text: `${SILENT_MARK}${dk}:${now - m * 60_000}`,
+      ts: new Date(now - m * 60_000).toISOString(),
+    })),
+    fail(120, 'ev_f1'),
+  ]
+  const capped = proactiveState({ config: ON, events: mixed, now })
+  assert.equal(capped.ok, false)
+  assert.match(capped.why, /都没落地/, '混着失败时要照实说，别只说「安静地醒过」')
 })
 
 test('每天最多几次跟着设置走：上限 12 时两次还没到顶，上限 1 时到顶', () => {

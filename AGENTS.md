@@ -73,7 +73,7 @@
 node --test
 ```
 
-当前基线 **3333 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
+当前基线 **3337 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
 
 按环境挑跑法：
 
@@ -202,7 +202,7 @@ POST http://127.0.0.1:<port>/say      → 字段与 POST /dsh-fish/say 完全一
 
 先问一句：**她写的正文会被插件自动发出去吗？** 会，就什么都不用填，只认正文的默认行为是对的。不会，也就是正文只留在会话里、要调工具才发得出去，才填下面这几项。都不认具体插件，工具名由配置给。
 
-- `proactive.sendTools`：发送工具的名字，也要放进 `tools.allow`（工具面收窄开着时，没放行她调不到）。填了之后，只有这些工具调成功才算她开了口（记 `proactive-turn:`，占额度，不折叠），代码模式（run_code）里调的也算；只写正文算没开口。处境和身份段会照实写用这个工具、正文发不到聊天里。工具自己返回「没发出去」但没有报错的，这里认不出来。
+- `proactive.sendTools`：发送工具的名字，也要放进 `tools.allow`（工具面收窄开着时，没放行她调不到）。填了之后，只有这些工具调成功才算她开了口（记 `proactive-turn:`，占额度，不折叠），代码模式（run_code）里调的也算；只写正文算没开口。处境和身份段会照实写用这个工具、正文发不到聊天里。**三种结局分开记**（2026-11-26）：成功 = `proactive-turn:`；她选择不说 = `proactive-silent:` + 折叠；调了发送工具但工具报错、或到这一轮收摊都没等到结果 = `proactive-fail:`（不占开口额度、不进静默封顶的「她选择不说」那一路、也不折叠——折掉她就忘了自己试过）。投递本身没落成（没认出那条 ping）也记 `proactive-fail:`。工具自己返回「没发出去」但没有报错的，这里认不出来。
 - `proactive.idleCountsSeen`：`true` 时 `seen:` 也算打断安静、也算「他接了」。她靠工具回话、正文不进事件流时要开。它要有 `seen:` 可认：走 `/say`，或者 `source.kind` 不是 `user`，或者带 `clientTimeZone`，或者带 `rpcId`（走宿主 prompt 的桥一定会带）；`{kind:'user'}` 又没时区、又没 rpcId 的桥要自己写。代价是他在这台机器上和别的 agent 说话也算，所以默认关。
 
 还有一项和工具无关：`proactive.foldSilent` 是 `false` 时，没开口的一轮只记账、不折。折叠会改历史，上下文很大、靠缓存省钱时可以关。
@@ -353,7 +353,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test` 3333 全绿
+- [ ] `node --test` 3337 全绿
 - [ ] 改了 `lib/client/*.js` 或 `lib/session-pressure-formulas.js` 的话，跑过 `node scripts/build-client.mjs` 重产 `lib/client.js`
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明

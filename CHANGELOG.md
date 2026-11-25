@@ -27,6 +27,11 @@
   改法：`stripToolShell` 在配对扫之前只补回这一笔（`<｜｜DSML｜｜` 紧跟 `parameter` 时换成 `<`），别的一个字符不动；补完仍然认不出 `name="text"` 段的就按原样返回——那是 DSML 形态的调用体（`action`、`query` 之类），不该当正文。配对扫描抽成 `scanShellPairs()`，两个函数用同一份逻辑。
   `test/markup.test.mjs` 的 F 用例补两条断言（`stripToolShell` 与 `stripToolMarkup` 同答案；带 DSML 残标的非 `text` 调用体原样返回）。全量 **3333 pass / 0 fail**（230 个测试文件，条数没变，只加断言），`doc-check --actual 3333` 与 `pack-check` 绿。
 
+- **「她试着发了、没送出去」被记成「她做了件事」，账上看不出区别（2026-11-26，用户 m00123）。**
+  配了 `proactive.sendTools` 的部署里，一轮主动醒来只有两种结局会被记住：真开口（`proactive-turn:`）和选择不说（`proactive-silent:`）。第三种——她调了发送工具，但工具报错、或者到这一轮收摊都没等到结果——落在 `followWake` 的 `anyTool` 里，scheduler 只写一行日志「她自己醒了一轮，做了件事，没说话」，一笔账都不记。后果有三样：观测台查不到送失败过几次；她下次醒来不知道自己试过，会对着同一个坏接口再试一遍；而「投递本身没落成」那一拍又被记成 `proactive-silent:`，把一次投递失败写成了「她选择不说」。
+  改法：`lib/compact.js` 的 `followWake` 多记两样——`sendTried`（调过配置里的发送工具）与 `sendFailed`（结果 `isError`，或到收摊还没等到结果，含代码模式里的嵌套派发）；`lib/scheduler.js` 在 `anyTool` 那一支之前先看 `sendFailed`，记新前缀 `proactive-fail:`（不占开口额度、不折——折掉她就忘了自己试过），投递没落成那一拍也改记它。`lib/drive.js` 的 `silentStreakOf` 把失败与静默一起算作「没落地」，连着几次就降频，别按同一节奏撞同一堵墙；`lib/proactive.js` 新增 `FAIL_MARK` / `failsToday` / `lastFailAt`，失败与静默共用每日封顶和 30 分钟间隔，封顶时理由分开说（「都没落地」不是「安静地醒过」）。`lib/log.js` 的导出白名单与 `lib/meta.js` 的前缀表同步，`AGENTS.md` §7.3 写清三种结局。
+  没动 `proactive-turn:` 与原有 `proactive-silent:` 的口径：开口额度、冷却、折叠仍只认这两类。新增 4 条回归（工具报错、没等到结果、一败一成算开口、别的工具不算失败）+ 2 条纯函数用例（失败占封顶/间隔、连击降频）。全量 **3337 pass / 0 fail**（230 个测试文件），`doc-check --actual 3337` 与 `pack-check` 绿。
+
 ## 1.1.1 — 2026-11-25
 
 这一版收的几处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；`tools/check-install.mjs` 自己认不出装了鱼；成长天数不再写成「31 / 30」；开着动手回合时也不会每半小时开一次口。
