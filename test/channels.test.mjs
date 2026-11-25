@@ -27,6 +27,7 @@ import {
 import { addExchange, recentExchanges, BUCKET_HOME, BUCKET_GROUP } from '../lib/talkmem.js'
 import { sayToHer } from '../lib/say.js'
 import { bumpTurns, homeStatus } from '../lib/home.js'
+import { handoffArmed, markHandoffShown, resetHandoff } from '../lib/handoff.js'
 import { registerObserve } from '../lib/observe.js'
 
 async function tmpRoot() {
@@ -761,5 +762,102 @@ test('「记你原话的间隔」设成 0：群里主人本人说的那句也不
 
     const { events } = await readEvents(root)
     assert.equal(events.filter((e) => e.type === 'heard').length, 0, '设置页写着「0 为不记」，群里也得停')
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+// ------------------------------------------------------------------ 交接页（2026-11-25，用户 m00663）
+//
+// 外部报告：「换房后 carry 正常生成，但交接页从不 arm、carry 也从没被清」。
+// 根因不在 sessionIdOf：armHandoffFor 只挂在 turns.js 的 onHuman 里，而 /say 的
+// prompt 带 requestId `say-…`，classifyMessage 一律判成 'plugin'——桥投递的每一句
+// 都进不了 onHuman。于是这条链路对任何经桥说话的用户都不生效。
+// 现在 say.js 自己认领、自己结账；这三条守的就是「别再退化回去」。
+
+/** 换过房的 home.json：carry 已生成，rotatedTo 指向现在这条会话。 */
+async function rotatedHome(root, sid) {
+  await writeFile(join(root, 'home.json'), JSON.stringify({
+    sessionId: sid,
+    wsId: 'ws-house',
+    turns: 0,
+    hearAt: 0,
+    rotatedFrom: 's-old',
+    rotatedTo: sid,
+    rotatedAt: new Date().toISOString(),
+    carry: '上一间屋子最后那句：我要去睡了。',
+  }, null, 2))
+}
+
+/**
+ * 假宿主 + 在 prompt 那一刻看交接页开关。
+ * `shown: true` 模拟宿主组装这一轮 system prompt 时身份段读到了这一页。
+ */
+function fakeCtxWatching({ shown = false } = {}) {
+  const box = fakeCtx()
+  const sc = box.ctx.sessionController
+  const orig = sc.prompt.bind(sc)
+  const at = []
+  sc.prompt = async (req, signal) => {
+    const sid = String(req?.sessionId ?? '')
+    at.push({ rid: String(req?.requestId ?? ''), sid, armed: handoffArmed(sid) })
+    if (shown && handoffArmed(sid)) markHandoffShown(sid)
+    return orig(req, signal)
+  }
+  return { ...box, at }
+}
+
+test('/say 递进换过的新房：交接页要认领（这条路进不了 turns 的 onHuman）', async () => {
+  const root = await tmpRoot()
+  resetHandoff()
+  try {
+    await seed(root)
+    await rotatedHome(root, 's-house')
+    const { ctx, at } = fakeCtxWatching()
+
+    const r = await sayToHer(ctx, '我回来了', { root, waitMs: 5_000, sessionId: 's-house' })
+    assert.equal(r.ok, true)
+
+    const say = at.find((x) => x.rid.startsWith('say-'))
+    assert.equal(say?.armed, true, '递进去之前就要认领：身份段是在宿主组装 prompt 那一刻求值的')
+    assert.equal(handoffArmed('s-house'), false, '这一轮结完开关要撤')
+
+    const saved = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    assert.match(String(saved.carry ?? ''), /我要去睡了/, '她这一轮没读到（没 handoffShown），carry 留着下一轮再摆')
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+test('她这一轮真读到了交接页：结完 carry 就清（不再每轮都摆一遍）', async () => {
+  const root = await tmpRoot()
+  resetHandoff()
+  try {
+    await seed(root)
+    await rotatedHome(root, 's-house')
+    const { ctx } = fakeCtxWatching({ shown: true })
+
+    const r = await sayToHer(ctx, '我回来了', { root, waitMs: 5_000, sessionId: 's-house' })
+    assert.equal(r.ok, true)
+
+    const saved = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    assert.equal(saved.carry, undefined, '她读到了，这一页就该收走')
+    assert.equal(handoffArmed('s-house'), false)
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
+test('群聊里的那句不摆交接页：那不是他回书房（carry 原样留着）', async () => {
+  const root = await tmpRoot()
+  resetHandoff()
+  try {
+    await seed(root)
+    await rotatedHome(root, 's-house')
+    const { ctx, at } = fakeCtxWatching()
+
+    const r = await sayToHer(ctx, '群里有人问你在不在', {
+      root, waitMs: 5_000, sessionId: 's-house', channel: 'qq-group:1', scene: 'group', speaker: '张三',
+    })
+    assert.equal(r.ok, true)
+
+    const say = at.find((x) => x.rid.startsWith('say-'))
+    assert.equal(say?.armed, false, '群聊不摆交接页——书房才是「他回来了」')
+    const saved = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
+    assert.match(String(saved.carry ?? ''), /我要去睡了/)
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
 })
