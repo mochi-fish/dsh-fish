@@ -134,6 +134,38 @@ test('安静多久按分钟：30 分钟能开，6 小时仍挡；一条 seen 也
   assert.match(proactiveState({ config: { proactive: { enabled: true, quietMinutes: 30 } }, events: seen, now }).why, /刚说过话/)
 })
 
+test('她自己开过口，也要等够安静时长（外部报告：开了动手回合后每 30 分钟一次）', () => {
+  const now = Date.now()
+  const dk = dateKey(new Date(now))
+  // 10 小时前他说过一句话（idle 早就够了）；20 分钟前她自己开过一次口。
+  const mine = (min, text = `proactive-turn:${dk}:${now - min * 60_000}`) => ev({
+    id: `ev_m${min}`,
+    type: 'meta',
+    text,
+    ts: new Date(now - min * 60_000).toISOString(),
+  })
+  const events = [ev({ ts: new Date(now - 10 * 3_600_000).toISOString() }), mine(20)]
+  // 默认 6 小时：她自己刚说过话，不能马上又开一轮——否则节奏会塌成 scheduler 的 30 分钟节流。
+  assert.match(proactiveState({ config: ON, events, now }).why, /她自己刚开过口/)
+  // 安静时长设成 10 分钟时，20 分钟前那一轮不再挡。
+  assert.equal(proactiveState({ config: { proactive: { enabled: true, quietMinutes: 10 } }, events, now }).ok, true)
+  // 隔了 7 小时的那一轮不影响：这条只管「刚说过」，不管历史上开过几次（额度另算）。
+  const old = [ev({ ts: new Date(now - 10 * 3_600_000).toISOString() }), mine(7 * 60)]
+  assert.equal(proactiveState({ config: ON, events: old, now }).ok, true)
+})
+
+test('静默醒来与「做了件事没说话」不归这条管：只有真开口才重新计时', () => {
+  const now = Date.now()
+  const dk = dateKey(new Date(now))
+  const base = ev({ ts: new Date(now - 10 * 3_600_000).toISOString() })
+  const silent = ev({ id: 'ev_silent', type: 'meta', text: `${SILENT_MARK}${dk}:${now - 20 * 60_000}`, ts: new Date(now - 20 * 60_000).toISOString() })
+  // 20 分钟前只是醒来没说话：走的是静默那条闸，不是「她自己刚开过口」。
+  assert.match(proactiveState({ config: ON, events: [base, silent], now }).why, /没开口/)
+  // 10 分钟前自己醒了一轮、做了件事、没说话（只记 drive-spend）：不占开口的节奏。
+  const spent = ev({ id: 'ev_spend', type: 'meta', text: `drive-spend:${dk}:${now - 10 * 60_000}`, ts: new Date(now - 10 * 60_000).toISOString() })
+  assert.equal(proactiveState({ config: ON, events: [base, spent], now }).ok, true)
+})
+
 test('空手回合的正文只说事实和许可，不写「你应该」', () => {
   const text = proactiveSection({ now: Date.now(), state: { idleHours: 9.5 }, material: [{ id: 'ev_a', type: 'utterance', text: '今天有点累' }], loose: [{ id: 'ev_b', text: '你问过一件事，还没答复。' }] })
   assert.match(text, /没有人跟你说话/)

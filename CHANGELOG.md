@@ -1,6 +1,6 @@
 ## 1.1.1 — 未发布
 
-这一版收的几处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；`tools/check-install.mjs` 自己认不出装了鱼；成长天数不再写成「31 / 30」。
+这一版收的几处：写入口也按会话 id 认人，换过工作目录之后不再集体判成「另一个家」；`tools/check-install.mjs` 自己认不出装了鱼；成长天数不再写成「31 / 30」；开着动手回合时也不会每半小时开一次口。
 
 - **「外面那把尺子」量不到任何东西——它认的是改名前的裸名（2026-11-24，外部报告）。** 真机：`node tools/check-install.mjs` 一律退出码 2，说「没找到装过 dsh-fish 的 profile」，而这台机器上明明装着。根子在 `readDep()` 把依赖键写死成 `dsh-fish`：0.8.10 就改名成 `@ssamurias/dsh-fish` 了，profile 里记的是新名，于是每个 profile 都被判成「没装过」。**同一个错假设还藏着第二处**：副本路径按短名拼成 `node_modules/dsh-fish`，带 scope 的包其实在 `node_modules/@ssamurias/dsh-fish`——就算依赖名认对，它也会指着一个不存在的目录，然后报「副本空的」。
   改法：包名不再手写，`ownName()` 直接读脚本旁边的 `package.json`（读不到才回落到常量），`pkgNames()` 再带上裸名 `dsh-fish` 给 0.8.9 之前的老 profile；`readDepEntry()` 返回「命中的是哪条依赖键 + 写法」，副本路径改成按那个键拼，所以新旧两种装法都指得对。
@@ -23,6 +23,11 @@
   安全上沿用同一个本机投递口的既有边界（绑 `127.0.0.1`、Host 校验、拒浏览器），再加 token（`timingSafeEqual`）与 20 KB 请求体上限；认领记录落 `bridge.json`，最多 500 条，坏档当空。新增 `test/bridge-claim.test.mjs` 4 条（显式认领账、配置归一、按目录认领后挂身份并收窄、四类闸门拒绝），全量 **3323 pass / 0 fail**（230 个测试文件）；`docs/认人判据.md` §3.1 与 `AGENTS.md` §7.1 同步。
 
 - **她换过工作目录之后，写入口不再集体失灵（2026-11-24，issue #179）。** 真机：会话出生在 `/root/workspace`，用户用宿主的 `working_directory` 切到 `/root/.dsh-fish`，之后 `her_note` / `growth_commit` / B 站落盘全回「这条调用来自另一个家」——`lib/tenant.js` 的 `callerOf()` 只读 `session.header.cwd`（出生目录），没读宿主 `workingDirectory` 投影里的**当前**目录。两处一起改：① 当前目录优先问宿主的 `workingDirectory.get(session)`（拿不到才回落出生目录）；② 按会话 id 认人——`isHerSession` 命中时 cwd 在哪都放行，因为「她换目录」不等于「她换了个人」。`tenancy` 顺手带上 `ctx` 与 `isHerSession`，`look.js` / `sub.js` / `watch.js` 的 `tenancyOf` 与 `use.js` 的记账路径一并透传；拒绝日志多记一行 `born=`，下次一眼能看出「是出生地还是现居地判错了」。新增 6 条测试（`test/tenant-live-cwd.test.mjs`），全量 **3311 pass / 0 fail**（229 个测试文件）。
+
+- **开了动手回合之后，她每 30 分钟开一次口（2026-11-25，外部报告）。** 真机（1.1.0）：06:32:17 / 07:02:57 / 07:32:15 / 08:02:15 / 08:32:13 / 09:02:14，间隔 30 分 40 秒 / 29 分 18 秒 / 30 分 0 秒 / 29 分 58 秒 / 30 分 1 秒；同一份日志里 `proactive skip 刚说过话，还不到时候` 出现 103 次；安静时长设的是 6 小时（`proactive.quietMinutes: 360`），11-19 到 11-24 每天只有 1–2 次。
+  根因不是报告猜的「`quietMinutes` 被绕过」，而是**这道闸量不到她自己**：`lib/proactive.js` 的 `idleHoursOf()` 只数事件流里的话（`utterance` 等 + `heard`/`voice`/`ask`/`answer`/`seen`），而她在主动回合里**用正文说的话不落事件**（只有 `her_say` 才写一条 `（她主动说）…` 的 utterance）——所以「安静多久」不会被自己的开口归零，`idle` 一旦越过 6 小时就**永远**越过。以前靠 `lib/scheduler.js:641`「空桌不醒」与 `:649`「24 小时内有新料（fresh）」两道闸控节奏；`proactive.allowDoing` 一开，两道一起被 `&& !doing.enabled` 短路，只剩 `:590` 那个 **30 分钟一拍**的节流（它本来是防 tick 每分钟重算，从来不是开口频率），于是每半小时开一次，直到 `maxPerDay` 用完——报告里 09:02 那条「今天已经到上限」就是第 6 次。顺带更正：报告说 641/649「绕过 quietMinutes」不准确，quiet 闸在它们之前（`:582` 先判 `st.ok`），被绕过的是空桌与新料这两道。
+  改法（按用户选的 A）：`proactiveState()` 加一条——最近一次 `proactive-turn:` 距今不足 `quietMinutes` 就不开，理由写「她自己刚开过口，还不到时候」。`proactive-turn:` 只在**真的说了话**时写（`scheduler.js:802`），静默醒来与「做了件事没说话」不写它，所以那两类仍按原节奏走，开口额度的语义不变。
+  新增 2 条测试：她自己 20 分钟前开过口时默认 6 小时挡住、安静时长改 10 分钟后放行、7 小时前那一轮不影响；静默醒来与 `drive-spend:` 那种「做了件事没说话」不归这条管。全量 **3325 pass / 0 fail**（230 个测试文件），`doc-check --actual 3325` 与 `pack-check`（244 个文件 3.1 MB）绿。
 
 ## 1.1.0 — 2026-11-24
 
