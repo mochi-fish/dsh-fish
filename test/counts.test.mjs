@@ -6,7 +6,7 @@
  *   2. 「记你原话的间隔」设成 0 时，群里主人本人的话也不记
  *   3. 白名单里没有 schedule_create 时，定时说明不教她新建，首行只说真放了的动作
  *   5. 每天醒 0 次 / 每天事件 0 条时，手动叫醒被拒的理由说的是「手动也叫不醒」
- *   6. 记忆页只留一个「打开记忆图」入口；原来的「查一下」和页内那份体检数字已经不在这里
+ *   6. 记忆页只留一个「打开记忆星图」入口；原来的「查一下」和页内那份体检数字已经不在这里
  *   7. 数字本身仍由 lib/health.js 的 examine 算（health.test.mjs 盯着），只是挪进那张图的「体检」页签
  *   8. 「日记留多久」删了旧文件，身份文档里写过几篇、从哪天起不跟着变
  *   9. 成长周期 14 天及以下时，界面写「一次」
@@ -547,19 +547,19 @@ function stateWith(extra = {}) {
   }
 }
 
-test('第 6、7 条（2026-11-26 改版）：体检那颗「查一下」换成打开整页记忆图', async () => {
+test('第 6、7 条（2026-11-26 改版）：体检那颗「查一下」换成打开整页记忆星图', async () => {
   // 数还在（lib/health.js 的 examine 没动，health.test.mjs 盯着），只是不再在页里排一遍：
-  // 它们挪进了记忆图那一页的「体检」页签。这里守的是「页里只留一个入口」这件事。
+  // 它们挪进了记忆星图那一页的「体检」页签。这里守的是「页里只留一个入口」这件事。
   const url = await render({ state: stateWith(), tab: 'memory', mapUrl: 'http://127.0.0.1:17322/' })
-  assert.ok(url.includes('打开记忆图'), '拿到地址后给链接')
+  assert.ok(url.includes('打开记忆星图'), '拿到地址后给链接')
   assert.ok(!url.includes('查一下'), '原来那颗按钮不再出现')
   assert.ok(!url.includes('还没查过'), '也不再在页里渲染一份体检数字')
 
   const waiting = await render({ state: stateWith(), tab: 'memory' })
   assert.ok(waiting.includes('正在准备地址'), '地址还没取到时说一句')
 
-  const failed = await render({ state: stateWith(), tab: 'memory', mapErr: '记忆图没起来' })
-  assert.ok(failed.includes('记忆图没起来'), '没起来时把原因写出来')
+  const failed = await render({ state: stateWith(), tab: 'memory', mapErr: '记忆星图没起来' })
+  assert.ok(failed.includes('记忆星图没起来'), '没起来时把原因写出来')
 })
 
 test('第 9 条：成长周期 14 天及以下时，界面写「一次」；30 天仍写「两次」', async () => {
