@@ -6,8 +6,8 @@
  *   2. 「记你原话的间隔」设成 0 时，群里主人本人的话也不记
  *   3. 白名单里没有 schedule_create 时，定时说明不教她新建，首行只说真放了的动作
  *   5. 每天醒 0 次 / 每天事件 0 条时，手动叫醒被拒的理由说的是「手动也叫不醒」
- *   6. 状态页的「认知矛盾」用总数；体检卡写清「共 N 处，列出前 3 处」
- *   7. 体检卡「冷掉」按最后一次提起或检验说
+ *   6. 记忆页只留一个「打开记忆图」入口；原来的「查一下」和页内那份体检数字已经不在这里
+ *   7. 数字本身仍由 lib/health.js 的 examine 算（health.test.mjs 盯着），只是挪进那张图的「体检」页签
  *   8. 「日记留多久」删了旧文件，身份文档里写过几篇、从哪天起不跟着变
  *   9. 成长周期 14 天及以下时，界面写「一次」
  *  10. 弹幕说明不再说「前 8 条」
@@ -547,28 +547,19 @@ function stateWith(extra = {}) {
   }
 }
 
-test('第 6、7 条：体检卡写清只列了前几处；「冷掉」按没再提起或检验的天数说', async () => {
-  const health = {
-    ok: true, empty: false, events: 40, days: 200, beliefs: 12, solid: 0,
-    tensionsTotal: 5,
-    tensions: [
-      { a: '我喜欢下雨天出去走走', b: '我不喜欢下雨天出去走走', sim: 0.9 },
-      { a: '我喜欢早上起来先喝一杯咖啡', b: '我不喜欢早上起来先喝一杯咖啡', sim: 0.9 },
-      { a: '我喜欢半夜坐在窗边写东西', b: '我不喜欢半夜坐在窗边写东西', sim: 0.9 },
-    ],
-    stale: [{ text: '旧书店里的灰尘闻起来像纸做的时间', since: iso(Date.now() - 200 * DAY), days: 100, faded: true }],
-    nearSolid: [], byType: [], staleDays: 21,
-  }
-  const txt = await render({ state: stateWith(), tab: 'memory', health })
-  assert.ok(txt.includes('共 5 处，列出前 3 处'), '总数比列出来的多时，两个数都要写')
-  assert.ok(!txt.includes('列出 5 处'), '底下只有 3 行，不能说列出 5 处')
-  assert.ok(txt.includes('100 天没再提起或检验'), '天数是从最后一次提起或检验算的')
-  assert.ok(!txt.includes('天前说的'), '那句是 200 天前说的，不能印成 100 天前说的')
-  assert.ok(!/说出来 \d+ 天以上/.test(txt))
+test('第 6、7 条（2026-11-26 改版）：体检那颗「查一下」换成打开整页记忆图', async () => {
+  // 数还在（lib/health.js 的 examine 没动，health.test.mjs 盯着），只是不再在页里排一遍：
+  // 它们挪进了记忆图那一页的「体检」页签。这里守的是「页里只留一个入口」这件事。
+  const url = await render({ state: stateWith(), tab: 'memory', mapUrl: 'http://127.0.0.1:17322/' })
+  assert.ok(url.includes('打开记忆图'), '拿到地址后给链接')
+  assert.ok(!url.includes('查一下'), '原来那颗按钮不再出现')
+  assert.ok(!url.includes('还没查过'), '也不再在页里渲染一份体检数字')
 
-  // 列得下的时候只说列出几处
-  const few = await render({ state: stateWith(), tab: 'memory', health: { ...health, tensionsTotal: 3 } })
-  assert.ok(few.includes('列出 3 处') && !few.includes('列出前'))
+  const waiting = await render({ state: stateWith(), tab: 'memory' })
+  assert.ok(waiting.includes('正在准备地址'), '地址还没取到时说一句')
+
+  const failed = await render({ state: stateWith(), tab: 'memory', mapErr: '记忆图没起来' })
+  assert.ok(failed.includes('记忆图没起来'), '没起来时把原因写出来')
 })
 
 test('第 9 条：成长周期 14 天及以下时，界面写「一次」；30 天仍写「两次」', async () => {
