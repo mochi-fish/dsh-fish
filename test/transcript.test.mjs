@@ -109,6 +109,57 @@ test('MARK_WORDS 覆盖报告里出现过的两种形态', () => {
   }
 })
 
+/* 标记词直接贴着汉字（2026-11-26 外部报告：`user它们像人堆人一样堆成的`） */
+
+test('user 后面直接贴汉字也算标记：整行切掉，前面的真话一字不动', () => {
+  const raw = [
+    '你们觉得它们是什么呢？',
+    '',
+    'user它们像人堆人一样堆成的，聚在一起。名字很直观',
+  ].join('\n')
+  assert.equal(stripTranscriptTail(raw), '你们觉得它们是什么呢？')
+  assert.equal(hasTranscriptTail(raw), true)
+  assert.equal(transcriptStart(raw), '你们觉得它们是什么呢？'.length + 2)
+})
+
+test('assistant / human 贴汉字也认，中文标记不受影响', () => {
+  assert.equal(stripTranscriptTail('好\nassistant名字很直观'), '好')
+  assert.equal(stripTranscriptTail('好\nhuman嗯，我在'), '好')
+  assert.equal(stripTranscriptTail('好\n用户 嗯嗯'), '好')
+})
+
+test('英文单词后面跟拉丁字母仍然不算标记（userland / users / assistants）', () => {
+  for (const s of ['我在说 userland 那个词。', '这几 users 都算。', '两个 assistants 在说话。']) {
+    assert.equal(stripTranscriptTail(s), s, `不该动：${s}`)
+  }
+})
+
+test('已知误伤：段落首行「user体验」这种中英混写会被切（判据 6.1 的代价）', () => {
+  // 报告 §6.1 明确接受这条代价：她自己的正文几乎不出现行首中英混写。
+  // 本机 1654 条真机正文里这种形态 0 条，所以宁可按标记处理。
+  assert.equal(stripTranscriptTail('第一段\n\nuser体验很重要。'), '第一段')
+})
+
+test('全角标点、CJK 标点紧贴也算（它们，/ 它们。）', () => {
+  assert.equal(stripTranscriptTail('好\nuser，我在'), '好')
+  assert.equal(stripTranscriptTail('好\nuser。我在'), '好')
+})
+
+test('中文标记仍按原判据：冒号、空白、行尾才算；「用户，我在」这种散文不算', () => {
+  assert.equal(stripTranscriptTail('好\n用户：我在'), '好')
+  assert.equal(stripTranscriptTail('好\n助手 '), '好')
+  // 中文标记后面直接贴汉字不放宽——`用户们`、`助手们` 是真词
+  assert.equal(stripTranscriptTail('好\n用户们在排队'), '好\n用户们在排队')
+  assert.equal(stripTranscriptTail('好\n用户，我在'), '好\n用户，我在')
+})
+
+test('流式清洗：user 被拆成 us + er它们 也要接住', () => {
+  // partialMarkTail 压住半个词，下一块拼上再判；这里只验判据本身。
+  assert.equal(partialMarkTail('us'), 2)
+  assert.equal(partialMarkTail('user'), 4)
+  assert.equal(transcriptStart('user它们像人堆人'), 0)
+})
+
 /* 末尾「一个人告别 + 另一个人应答」：没有标记，只有空行分段（2026-11-21 外部报告） */
 
 const BODY = '这次没有一个人扛得住，只能全部一起重来。'
