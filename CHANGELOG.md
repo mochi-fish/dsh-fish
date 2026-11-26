@@ -1,5 +1,10 @@
 ## 未发布
 
+- **分享页的署名能认人了、开场不再先闪一只虚线鲸鱼（2026-11-27）。**
+  三处改动：① 右下与导出 PNG 底栏的 `dsh-fish` 只作标识，去掉了指向仓库的外链——分享出去的页面不该带着别人的跳转；② 删掉 `drawSelf` 里「还没成形时先描一圈旧 logo 虚线」的那段，开局只剩她自己的粒子往外收，不再先亮一只不属于她的轮廓；③ `meta.name` 从写死的空串改成 `String(model.name || '')`，标题因此能写「<她自己认的名字> 的记忆图」，没名字时照旧只写「记忆图」。
+  顺手三件小事：整盘开场 300ms 从 0.96 缩到 1（`cubic-bezier` 手感，不改布局）；鼠标扫过节点时给一圈 3.4 倍半径的柔光，只增光不挪点；四道阶段环带外缘标了「≈ 第 N 天起」，不用再数圈。
+  全量 **3350 pass / 0 fail**（232 个测试文件），`doc-check --actual 3350`、`pack-check`（248 个文件 3.2 MB）绿。
+
 - **桥的话认得了她，却不算「他来过」（2026-11-27，issue #180）。** 真机：`dsh-onebot-qq` 0.9.18 把 QQ 私聊直接 `followup(createUserMessage({ source: { kind:'plugin:dsh-onebot' } }))` 投进她的会话；身份段挂上了、她照常回，可 `events.jsonl` 从 11-24 起再没有一条 `seen:`，状态面板「冷落 3 天」，轮数不涨、`heard` 也不写。根子是两条判据只放宽了一条：1.1.1 让 `isBridgeMessage()` 认 `plugin:*` 来认领，`classifyMessage()` 仍把 `plugin:` 前缀一律判成 `context`，`onHuman()` 压根不跑。
   改法只开两道窄口：① `source.bridge === true`（kind 不是 `retry`/空）→ `human`；② 认领时把 `source.kind` 记进 `bridge.json` 的 `via`，之后**只有同一个 kind** 在那条会话里算 `human`——同一条会话里别的插件投的消息照旧 `context`，`plugin:hindsight` / `plugin:whatever` 的边界不动；插件重启后从 `bridge.json` 灌回。显式 `/claim` 没有 kind，`via` 留空 = 不限 kind。老会话没有 `via` 的，桥补 `source.bridge: true` 立即生效，或重新 `/claim` / 新开会话。
   测试：`test/turns.test.mjs` 加四条分类断言（bridge:true + `plugin:dsh-onebot` / `qq` → human；`retry` / 空 kind → context）与一条集成（未认领不算人；认领后同 kind → 轮数 / `seen:` / `heard` 各 1；另一个 `plugin:` kind 仍不算）；`claim` / `bridge-claim` / `turns` 共 **78 pass**，全量 **3343 pass / 0 fail**（232 个测试文件）。`AGENTS.md` §10 与 `docs/认人判据.md` §3.2 同步。
