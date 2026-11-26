@@ -973,20 +973,24 @@ const ID_DOC = [
   '我是个还没长完的人。',
 ].join('\n')
 
-test('splitVolatileIdentity：四段剪出来，其余原样、顺序不变', () => {
+test('splitVolatileIdentity：会变的那几段剪出来，其余原样、顺序不变', () => {
   const { stable, volatile } = splitVolatileIdentity(ID_DOC)
   assert.match(volatile, /## 你自己说过的话/, '带括号补充的标题也要认出来')
   assert.match(volatile, /## 你读到的一句话/)
   assert.match(volatile, /## 你被打脸过/)
   assert.match(volatile, /## 你对自己的说法/)
+  // 2026-11-27（用户 m00465）：那句话里的 N 每多一条判断就 +1，也剪走
+  assert.match(volatile, /## 更早以前/, '「还有 N 条更早的」那一行会变')
   assert.ok(!stable.includes('你被打脸过'))
   assert.ok(!stable.includes('读到的一句话'))
-  assert.ok(stable.includes('## 更早以前'), '没被点名的段不动')
+  assert.ok(!stable.includes('## 更早以前'))
   assert.ok(stable.includes('## 这个房间'))
+  assert.ok(stable.includes('## 我手上有什么'), '没被点名的段不动')
   // 稳定部分里，被剪掉的位置不会留下空行或碎块
   assert.equal(stable.split('\n\n\n').length, 1)
-  assert.ok(stable.indexOf('## 你是谁') < stable.indexOf('## 更早以前'))
-  assert.ok(stable.indexOf('## 更早以前') < stable.indexOf('## 我手上有什么'))
+  assert.ok(stable.indexOf('## 你是谁') < stable.indexOf('## 我手上有什么'))
+  // 剪出来的次序跟着原文走：更早以前 在 你读到的一句话 之前
+  assert.ok(volatile.indexOf('## 更早以前') < volatile.indexOf('## 你读到的一句话'))
 })
 
 test('splitVolatileIdentity：履历（我做过的事）也剪到尾巴——她每用一次工具它就变（2026-11-14）', () => {
