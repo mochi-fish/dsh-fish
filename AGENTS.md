@@ -73,7 +73,7 @@
 node --test
 ```
 
-当前基线 **3342 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
+当前基线 **3343 个**，独立进程跑 `node --test` 应全绿。任何一条红都不许提交——包括看起来"不是我弄的"那条。
 
 按环境挑跑法：
 
@@ -335,6 +335,8 @@ qq_send_message, qq_get_unread_messages, qq_reply
 
 **桥来信的判据**（`lib/claim.js` 的 `isBridgeMessage()`）三种之一：① `source.bridge === true`（桥显式声明，1.1.1 起的契约）；② `kind` 是 `plugin:<插件名>` 且不是 `plugin:dsh-fish`、不带 `fish` 标记（直接 `followup` 的 QQ 桥走这条）；③ `kind === 'user'` **且**（`scene === 'group'` / `guest === true` / 判成 `human` 但没有 `clientTimeZone`）。第三条里的 `kind === 'user'` 仍是硬门槛：宿主 `prompt()` 空正文时写 `retry`，`classifyMessage` 兜底又会把不认识的 kind 当人——放宽它，他屋里普通会话点一次「重试」就会被认成她。① 与 ② 不受这条限制，但都排除了 `retry` 与空 kind。
 
+**记账侧的判据**（`classifyMessage()`，1.1.2，issue #180）：`plugin:` 前缀默认仍判 `context`——别的插件也这么投，不能一概算人。只放两种：① `source.bridge === true` 且 kind 不是 `retry`/空 → `human`；② 认领时把「哪个 kind 认的」记进 `bridge.json` 的 `via`，之后**只有同一个 kind 在那条会话里**算 `human`，同一条会话里别的插件投的消息照旧 `context`。插件重启后从 `bridge.json` 灌回；1.1.2 之前认领的老桥会话没有 `via`，桥补 `source.bridge: true` 或重新 `/claim` / 新开会话即可。
+
 **不会被认的**：他自己开在她屋里的会话（本地字一定带 `clientTimeZone`）、任何不在她屋里的会话、走 `/say` 或复用 `sessionId` 的桥、插件自己的消息（`source.fish === 'note'` / `PLUGIN_RPC`）、宿主上下文（无 `source`）、自起 kind 的来信。
 
 **三条改代码时的禁令**：
@@ -353,7 +355,7 @@ qq_send_message, qq_get_unread_messages, qq_reply
 - [ ] 没有新增人格设置入口
 - [ ] 新输入口都过了 `lib/guard.js`
 - [ ] 加 / 改名 / 删了工具，`test/toolmap.test.mjs` 的 `MAP`（或 `lib/toolreg.js` 的 `SCENE_TOOLS`）跟着改了（见 §8）
-- [ ] `node --test` 3342 全绿
+- [ ] `node --test` 3343 全绿
 - [ ] 改了 `lib/client/*.js` 或 `lib/session-pressure-formulas.js` 的话，跑过 `node scripts/build-client.mjs` 重产 `lib/client.js`
 - [ ] 界面文案没有「他」「四道门」「三道门」；给她看的文本里指主人的字写的是 `{T}` 而不是写死「他」（见 §4）
 - [ ] 改了 `EVENT_SCHEMA_VERSION` 的话，`CHANGELOG.md` 里写了迁移说明
@@ -371,5 +373,6 @@ qq_send_message, qq_get_unread_messages, qq_reply
 2. **`cordis.patch.yml` 的 `id` 保持短名 `dsh-fish`、`name` 写全名**（与 `@goodandready/dsh-voice` 一致）。`id` 变了会连带 client bundle 的 URL 对不上；`name` 写短名则 import 失败、直接崩在 web boot。
 3. **别删升级脚本里的 normalize 那一步**（`lib/selfupdate.js` 的 `normalizeScript()`，安装脚本第 5/6 步）。0.8.9 之前装的 profile 里旧键还在，不清掉就会同时有两条鱼、两条 insert 撞一个 id，启动报 `duplicate factory registration`。
 4. **`scripts/fix-legacy-link.mjs` 必须三种依赖写法都认**：源码目录 `link:`、`file:` 装的 tgz、`@ssamurias/dsh-fish@x.y.z` 版本号。版本号那条是 issue #43 的根因——照更新说明用 `dsh plugin add` 升上来的人，profile 里留下的就是版本号；脚本过去只认前两种，一句「没有老依赖，跳过」退出 0，旧键与旧 `bundles` 条目原封不动。改它之前先跑 `test/fix-legacy-link.test.mjs`（`migrateOne()` 是给它直接测的）。
+
 
 

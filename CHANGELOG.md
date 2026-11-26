@@ -1,5 +1,9 @@
 ## 未发布
 
+- **桥的话认得了她，却不算「他来过」（2026-11-27，issue #180）。** 真机：`dsh-onebot-qq` 0.9.18 把 QQ 私聊直接 `followup(createUserMessage({ source: { kind:'plugin:dsh-onebot' } }))` 投进她的会话；身份段挂上了、她照常回，可 `events.jsonl` 从 11-24 起再没有一条 `seen:`，状态面板「冷落 3 天」，轮数不涨、`heard` 也不写。根子是两条判据只放宽了一条：1.1.1 让 `isBridgeMessage()` 认 `plugin:*` 来认领，`classifyMessage()` 仍把 `plugin:` 前缀一律判成 `context`，`onHuman()` 压根不跑。
+  改法只开两道窄口：① `source.bridge === true`（kind 不是 `retry`/空）→ `human`；② 认领时把 `source.kind` 记进 `bridge.json` 的 `via`，之后**只有同一个 kind** 在那条会话里算 `human`——同一条会话里别的插件投的消息照旧 `context`，`plugin:hindsight` / `plugin:whatever` 的边界不动；插件重启后从 `bridge.json` 灌回。显式 `/claim` 没有 kind，`via` 留空 = 不限 kind。老会话没有 `via` 的，桥补 `source.bridge: true` 立即生效，或重新 `/claim` / 新开会话。
+  测试：`test/turns.test.mjs` 加四条分类断言（bridge:true + `plugin:dsh-onebot` / `qq` → human；`retry` / 空 kind → context）与一条集成（未认领不算人；认领后同 kind → 轮数 / `seen:` / `heard` 各 1；另一个 `plugin:` kind 仍不算）；`claim` / `bridge-claim` / `turns` 共 **78 pass**，全量 **3343 pass / 0 fail**（232 个测试文件）。`AGENTS.md` §10 与 `docs/认人判据.md` §3.2 同步。
+
 - **分享页多了「谁的记忆图」一行，次要文字亮了一档，左栏挤到 610 高也不压阶段钮（2026-11-27）。**
   HUD 顶部现在是三行：`记 忆` / `记忆图`（有 `meta.name` 时写作「<名字> 的记忆图」）/ `第 N 天 / 总天数 · 阶段`。此前只有 `记 忆` 与天数，分享出去看不出这是谁的盘。
   对比度与字号收了一档：`--dim` 提到 `#8ea6c0`、HUD 副标 11 → 11.5px、统计与右下条目 `#7d8ea6` → `#93a7bd`、`#right b` 提到 `#c2d8ec`、面板行 11 → 11.5px；画布里的年表副标 9 → 9.5px、颜色由 .74 提到 .84 透明度（暗底小字最难读的就是这一档）。

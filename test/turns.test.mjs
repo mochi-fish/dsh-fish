@@ -35,6 +35,7 @@ import { saveChannel } from '../lib/channels.js'
 import { setWakeSection, getWakeSection, clearWakeSection } from '../lib/identity.js'
 import { armHandoff, handoffArmed, markHandoffShown, resetHandoff } from '../lib/handoff.js'
 import { deriveSelf } from '../lib/derive.js'
+import { markBridgeSession } from '../lib/claim.js'
 
 const HER_SESSION = 's-her'
 
@@ -204,6 +205,13 @@ test('来源判据：真人 / 插件 / 上下文 / 外渠道 分得清', () => {
   assert.equal(classifyMessage({ source: { kind: 'system-prompt' } }), 'context')
   assert.equal(classifyMessage({ source: { kind: 'tool' } }), 'context')
   assert.equal(classifyMessage({ source: { kind: 'plugin:whatever' } }), 'context')
+  // 2026-11-26（issue #180）：桥显式声明 bridge:true 的就是他的话，不必再靠 kind 猜。
+  // 这条是「认领」与「记账」共用的契约：桥自己说这是转进来的，就算他来过。
+  assert.equal(classifyMessage({ source: { kind: 'plugin:dsh-onebot', bridge: true } }), 'human')
+  assert.equal(classifyMessage({ source: { kind: 'qq', bridge: true } }), 'human')
+  // 但机器 kind 不从这道门回来：retry 与空 kind 都不算（同认领侧）。
+  assert.equal(classifyMessage({ source: { kind: 'retry', bridge: true } }), 'context')
+  assert.equal(classifyMessage({ source: { kind: '', bridge: true } }), 'context')
 
   // 2026-11-03（多间房）：群聊里的字不是"他来找过你"。
   // 桥注入时把场次写在 source.scene 上，判据在 kind 之后立刻认它——
@@ -445,6 +453,52 @@ test('桥接消息带 rpcId 就算他来过，渠道提示不进记忆（2026-11
       await settled()
       const after = await readEvents(root)
       assert.equal(after.events.filter((e) => e.type === 'meta' && String(e.text).startsWith('seen:')).length, 1, 'note-only 不再多记一条')
+    } finally {
+      off()
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+  }
+})
+
+test('桥用 plugin: 前缀 followup 的话：只认「认领它的那个 kind」（issue #180）', async () => {
+  const root = await tmpRoot()
+  try {
+    await writeCfg(root, { memory: { hearEvery: 1 } })
+    const { ctx } = fakeCtx()
+    const off = registerTurns(ctx, { root, log: () => {} })
+    try {
+      const bridgeMsg = (text, id) => ({
+        type: 'user/message',
+        data: { id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'plugin:dsh-onebot' } },
+      })
+      // 没认领过：同一条来信只是 context，不算他来过（别的插件也这么投）。
+      ctx.emit('session/event', session(), bridgeMsg('还没认领的一句', 'm-180-a'))
+      await settled()
+      assert.equal((await homeStatus(root)).turns, 0)
+      assert.equal((await readEvents(root)).events.filter((e) => e.type === 'meta' && String(e.text).startsWith('seen:')).length, 0)
+
+      // 认领之后，认领它的那个 kind 才算他的话：涨轮、写 seen、进 heard。
+      markBridgeSession(HER_SESSION, 'plugin:dsh-onebot')
+      ctx.emit('session/event', session(), bridgeMsg('今天下班路上看见一家新开的面馆，晚上想去试试', 'm-180-b'))
+      await settled()
+      ctx.emit('session/event', session(), herMsg([{ type: 'text', text: '面条吧。' }]))
+      ctx.emit('session/event', session(), TURN_END)
+      await waitFor(async () => (await homeStatus(root)).turns === 1)
+      await settled()
+      const after = await readEvents(root)
+      assert.equal(after.events.filter((e) => e.type === 'meta' && String(e.text).startsWith('seen:')).length, 1, '他来过一次')
+      assert.equal(after.events.filter((e) => e.type === 'heard').length, 1, '原话进 heard')
+
+      // 同一条会话里别的插件投的消息仍不算人：只放行认领它的那个 kind。
+      ctx.emit('session/event', session(), {
+        type: 'user/message',
+        data: { id: 'm-180-c', role: 'user', content: [{ type: 'text', text: '别的插件的一句话' }], source: { kind: 'plugin:hindsight' } },
+      })
+      await settled()
+      assert.equal((await homeStatus(root)).turns, 1, '别的 plugin kind 不涨轮')
+      const last = await readEvents(root)
+      assert.equal(last.events.filter((e) => e.type === 'meta' && String(e.text).startsWith('seen:')).length, 1, '也不写 seen')
     } finally {
       off()
     }
@@ -2574,3 +2628,4 @@ test('检验卡的回话算不算一次检验：编号和材料都要（2026-11-
   // 引了材料但没带编号 → 不记（没法知道她说的是哪条）
   assert.equal(testAnswerCredit('视频里那句「先看结果」让我改口了。', id).ok, false)
 })
+
