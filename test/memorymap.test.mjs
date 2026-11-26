@@ -9,7 +9,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { MEMORY_MAP_HTML_B64 } from '../lib/memorymap-html.js'
-import { renderMemoryMapHtml } from '../lib/memorymap.js'
+import { renderMemoryMapHtml, herNameOf } from '../lib/memorymap.js'
 
 const template = () => Buffer.from(MEMORY_MAP_HTML_B64, 'base64').toString('utf8')
 
@@ -44,4 +44,28 @@ test('renderMemoryMapHtml：没有事件也给得出一页，数据内联、不�
   } finally {
     await fs.rm(root, { recursive: true, force: true })
   }
+})
+
+// 名字（2026-11-27）：她自己的名字从事件流里取；取不到就留空，页面只写「记忆星图」。
+// 绝不能拿 model.name 顶上——那是「她怎么称呼他」（他的称呼），不是她的名字。
+test('她的名字从「他给我起了名字：X」里取', () => {
+  assert.equal(herNameOf([{ text: '他给我起了名字：大肥鱼。他说我不是一个东西。' }]), '大肥鱼')
+})
+
+test('她自己的说法也认：以后叫我 X / 我想叫做「X」，语气词要去掉', () => {
+  assert.equal(herNameOf([{ text: '以后就叫我阿辰吧' }]), '阿辰')
+  assert.equal(herNameOf([{ text: '我想叫做「小满」' }]), '小满')
+})
+
+test('没写过名字就留空，不从别处兜底', () => {
+  assert.equal(herNameOf([]), '')
+  assert.equal(herNameOf([{ text: '今天天气不错' }]), '')
+  assert.equal(herNameOf([{ text: '他给了我一块糖' }]), '')
+})
+
+test('写过多次时取最后一次', () => {
+  assert.equal(herNameOf([
+    { text: '他给我起了名字：旧名。' },
+    { text: '以后就叫我新名' },
+  ]), '新名')
 })
