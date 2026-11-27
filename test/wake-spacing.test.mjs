@@ -169,7 +169,7 @@ test('落点之后不再一分钟一个地连着叫；第二次等时间到、�
     try {
       await s.tick()
       assert.equal(h.prompts.length, 1, '落点到了醒第一次')
-      assert.match(h.prompts[0].section, /叫醒你的信号/)
+      assert.match(h.prompts[0].section, /这一轮是你自己的/, '递进去时处境还在（叫醒说明常驻 system 段，不再随处境走）')
       h.emit('turn/start'); h.emit('turn/end')
       assert.equal(getWakeSection(), '', '这一轮结束处境撤掉')
 
@@ -221,7 +221,7 @@ test('叫醒准备的几秒里她刚好开始了别的一轮：等那一轮说�
     try {
       await s.tick()
       assert.equal(h.prompts.length, 1)
-      assert.match(h.prompts[0].section, /叫醒你的信号/, '叫的时候处境还在，没被那一轮的 turn/end 收走')
+      assert.match(h.prompts[0].section, /这一轮是你自己的/, '叫的时候处境还在，没被那一轮的 turn/end 收走')
       // 那一轮的 turn/end 是 60ms 后才来的：等它落地再收摊。
       // 以前这里一断言完就 dispose，监听被摘掉、busy 表里这条会话永远算「在忙」，
       // 兜底定时器就一直重排，进程级的叫醒窗口跟着泄漏到下一个用例。
@@ -338,7 +338,7 @@ test('排队叫醒：前一轮的 turn/end 不许把处境收走，要等我们�
       await s.tick()
       assert.equal(h.prompts.length, 1, '落点到了醒第一次')
       const before = getWakeSection()
-      assert.match(before, /叫醒你的信号/, '投递时处境在')
+      assert.match(before, /这一轮是你自己的/, '投递时处境在')
 
       // 上一轮（不是我们叫醒的这一轮）结束：没有 turn/start，不该算数
       h.emit('turn/end')

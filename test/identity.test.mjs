@@ -36,6 +36,9 @@ import {
   RULES_SECTION,
   TOOLS_ORDER,
   TOOLS_SECTION,
+  WAKE_HINT,
+  WAKE_NOW_ORDER,
+  WAKE_NOW_SECTION,
   WAKE_ORDER,
   WAKE_SECTION,
   attachAssembleFix,
@@ -103,7 +106,7 @@ test('identityText：读到文件内容，改文件后（mtime 变）能拿到�
   assert.equal(identityText(root), '第二版身份')
 })
 
-test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（平时空）+ 手边有什么 + 旧话 + 本子上记着什么 + 规矩', () => {
+test('attachIdentity：挂八段——交接页 + 身份 + 叫醒说明 + 手边有什么 + 处境 + 旧话 + 本子上记着什么 + 规矩', () => {
   resetIdentityCache()
   clearWakeSection()
   const root = tmp()
@@ -115,10 +118,10 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   const agent = { ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => ctxs.push(o) } } }
   const r = attachIdentity(agent, root)
   assert.equal(r.ok, true)
-  // 七样东西：六段走 section，旧话走 context（2026-11-28，外部报告：它在 system 通道里
-  // 一变就带得整份身份段重新 append 一遍）。段位总数不变，只是换了一条通道。
-  assert.equal(calls.length, 6, '身份 + 处境 + 手边 + 交接页 + 本子目录 + 规矩')
-  assert.equal(ctxs.length, 1, '旧话单独走 context')
+  // 八样东西：六段走 section，「这一次的处境」和旧话走 context（2026-11-28，
+  // 外部报告：它们在 system 通道里一变就带得整份身份段重新 append 一遍）。
+  assert.equal(calls.length, 6, '身份 + 叫醒说明 + 手边 + 交接页 + 本子目录 + 规矩')
+  assert.equal(ctxs.length, 2, '处境、旧话各走 context')
   const sec = calls[0]
   assert.equal(sec.name, IDENTITY_SECTION)
   assert.equal(sec.order, IDENTITY_ORDER)
@@ -134,16 +137,31 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   assert.equal(typeof handoff.text, 'function')
   assert.equal(handoff.text(), '', '没换房就没有交接页')
 
-  // 第二段：这一次的处境。平时空串（等于不存在），唤醒前才填。
+  // 第二段：叫醒说明。**必须是一个不变的字符串**——它一变（哪怕是函数求值变了），
+  // 宿主的 `systemPromptUpdate:'in-history'` 就会把整份身份段重新 append 一遍，
+  // 这正是 2026-11-28 外部报告的病根。处境来去时这一段必须原样不动。
   const wake = calls[1]
   assert.equal(wake.name, WAKE_SECTION)
   assert.equal(wake.order, WAKE_ORDER)
-  assert.equal(typeof wake.text, 'function')
-  assert.equal(wake.text(), '', '没唤醒时这段必须是空，否则他聊天时她还带着上一次的处境')
+  assert.equal(typeof wake.text, 'string', '必须是常量字符串，不能是每轮求值的函数')
+  assert.equal(wake.text, WAKE_HINT)
   setWakeSection('第 1 天，你醒了。')
-  assert.equal(wake.text(), '第 1 天，你醒了。')
+  assert.equal(wake.text, WAKE_HINT, '挂上处境时，system 段一个字都不许变')
   clearWakeSection()
-  assert.equal(wake.text(), '')
+  assert.equal(wake.text, WAKE_HINT, '收走处境后，system 段也不许变')
+
+  // 「这一次的处境」自己走 context：平时空串，唤醒前才填，turn/end 后清空。
+  const wakeNow = ctxs[0]
+  assert.equal(wakeNow.name, WAKE_NOW_SECTION)
+  assert.equal(wakeNow.order, WAKE_NOW_ORDER)
+  assert.ok(wakeNow.order > WAKE_ORDER, '处境紧跟在叫醒说明之后')
+  assert.equal(wakeNow.interpolate, false, '处境里可能有她的原话，畸形花括号会让宿主插值 throw')
+  assert.equal(typeof wakeNow.text, 'function', '每一轮都要现读自己那条会话的处境')
+  assert.equal(wakeNow.text(), '', '没唤醒时不占快照')
+  setWakeSection('第 1 天，你醒了。')
+  assert.equal(wakeNow.text(), '第 1 天，你醒了。')
+  clearWakeSection()
+  assert.equal(wakeNow.text(), '')
 
   // 第三段：手边有什么（2026-10-29，用户 m01276）。收不窄的工具靠这段说清。
   const tools = calls[3]
@@ -156,7 +174,7 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   assert.match(txt, /这件事我做不到/, '和兜底守卫同一句话术')
 
   // 第四段：这一句碰到的旧话（1.0.4）。平时空串，等于不存在。
-  const cue = ctxs[0]
+  const cue = ctxs[1]
   assert.equal(cue.name, CUE_SECTION)
   assert.equal(cue.order, CUE_ORDER)
   assert.equal(cue.interpolate, false, '宿主插值只认 {{name}}，她的话里出现畸形花括号会 throw')
@@ -198,10 +216,11 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   assert.match(tailAfterNote, /买猫粮/)
 })
 
-// 2026-11-28（外部报告 BUG-身份段每轮重发）：cue 是「他每说一句都可能换」的那种段，
-// 挂在 section 上时一变就带着整份身份段重新 append。宿主的 context 通道才是对的；
-// 老宿主没有 context 时**不许退回 section**——回退等于把每轮多付一份的毛病留着。
-test('attachIdentity：宿主没有 systemPrompt.context 时 cue 不挂，也不退回 section', () => {
+// 2026-11-28（外部报告 BUG-身份段每轮重发）：cue 与「这一次的处境」都是「他每说一句 /
+// 每醒一次就可能换」的那种段，挂在 section 上时一变就带着整份身份段重新 append。
+// 宿主的 context 通道才是对的；老宿主没有 context 时**不许退回 section**——
+// 回退等于把每轮多付一份的毛病留着。
+test('attachIdentity：宿主没有 systemPrompt.context 时 cue 与处境都不挂，也不退回 section', () => {
   resetIdentityCache()
   clearWakeSection()
   const root = tmp()
@@ -212,9 +231,10 @@ test('attachIdentity：宿主没有 systemPrompt.context 时 cue 不挂，也不
   const logs = []
   const agent = { ctx: { systemPrompt: { section: (o) => calls.push(o) } } }
   const r = attachIdentity(agent, root, { log: (m) => logs.push(m) })
-  assert.equal(r.ok, true, '老宿主照样挂得上，只是少这一段')
-  assert.equal(calls.length, 6, '身份 + 处境 + 手边 + 交接页 + 本子目录 + 规矩')
+  assert.equal(r.ok, true, '老宿主照样挂得上，只是少这两段')
+  assert.equal(calls.length, 6, '身份 + 叫醒说明 + 手边 + 交接页 + 本子目录 + 规矩')
   assert.ok(!calls.some((c) => c.name === CUE_SECTION), 'cue 不许悄悄退回 section')
+  assert.ok(!calls.some((c) => c.name === WAKE_NOW_SECTION), '处境不许悄悄退回 section')
   assert.ok(logs.some((m) => /systemPrompt\.context/.test(m)), '要在日志里留一句，别静默消失')
 })
 
@@ -470,7 +490,7 @@ test('registerIdentity：只给她那个 agent 挂（按 cwd 判），别人不�
   handler({ agent: { session: { header: { cwd: join(root, 'other') } }, ctx: { systemPrompt: { section: (o) => others.push(o), context: (o) => others.push(o) } } } })
   handler({ agent: { session: { header: { cwd: '' } }, ctx: { systemPrompt: { section: (o) => others.push(o), context: (o) => others.push(o) } } } })
 
-  assert.equal(mine.length, 7, '她那条会话必须挂上（身份 + 处境 + 手边 + 旧话 + 本子 + 交接页 + 规矩七段）')
+  assert.equal(mine.length, 8, '她那条会话必须挂上（六 system 段 + 处境/旧话两条 context）')
   assert.equal(others.length, 0, '用户自己的会话不许挂')
 })
 
@@ -510,7 +530,7 @@ test('registerIdentity：他开在她工作区里的会话（有 id、不在台�
     },
   })
 
-  assert.equal(hers.length, 7, '她在台账里，照常挂')
+  assert.equal(hers.length, 8, '她在台账里，照常挂（六 system 段 + 两条 context）')
   assert.equal(his.length, 0, '同一个目录里他的会话一条都不许挂')
   resetHerSessions()
 })
@@ -954,12 +974,12 @@ test('attachIdentity 顺手挂上组装钩子与正文清洗钩子，且拆卸�
   }
   const r = attachIdentity(agent, root)
   assert.equal(r.ok, true)
-  assert.equal(calls.length, 7, 'assemble 钩子不是 system prompt 的段，不许占段位；七段含交接页')
+  assert.equal(calls.length, 8, 'assemble 钩子不是 system prompt 的段，不许占段位；六段 + 处境/旧话两条 context')
   // 组装钩子（0.8.5 摘 persona-prefix）、正文清洗钩子（0.9.8 llm/stream）、空正文重试（1.0.2）各一条
   assert.deepEqual(hooks.map((h) => h.evt), ['system-prompt/assemble', 'llm/stream', 'agent/request-error'])
   for (const h of hooks) assert.equal(h.o?.prepend, true, '三个钩子都要排最外层')
   // mountedCount 只数段与守卫；钩子单独记，但回家时必须一起拆
-  assert.equal(mountedCount(agent), 7)
+  assert.equal(mountedCount(agent), 8)
 })
 
 test('attachAssembleFix：整改过程炸了也必须原样放行（不能让她一整轮没有系统提示词）', async () => {
@@ -1109,7 +1129,7 @@ test('处境按会话分开存：A 房间的一次叫醒，不许进 B 房间那
   fs.writeFileSync(selfDocPath(root), '我是她', 'utf8')
   attachIdentity(mk('session-a'), root)
   attachIdentity(mk('session-b'), root)
-  const wakeOf = (id) => seen.find((s) => s.id === id && s.o.name === WAKE_SECTION).o.text()
+  const wakeOf = (id) => seen.find((s) => s.id === id && s.o.name === WAKE_NOW_SECTION).o.text()
   assert.equal(wakeOf('session-a'), '这一轮是你自己的，不用回应任何人。')
   assert.equal(wakeOf('session-b'), '', '另一条会话的这一轮必须是干净的')
   clearWakeSection()
@@ -1255,16 +1275,16 @@ test('reorderVolatile：她自己的段和宿主的身份段永远不挪', () =>
 })
 
 
-test('处境排在信念之后：每醒一次，只有它自己是新的（2026-11-14，用户 m03077）', () => {
-  // 处境（fish:wake）每醒一次就换一份（时间、间隔、最近几条），原来排 8700、
-  // 压在 fish:beliefs（9000）前面，于是每次自主醒都把后面那三千字信念段带掉缓存。
-  // 现在 9250：信念留在缓存里，只有处境自己重算；账本挪来的外来段（9400+）仍在最后。
+test('叫醒说明排在信念之后：它自己永远不变，处境才跟着走（2026-11-14 / 2026-11-28）', () => {
+  // 说明段（fish:wake）现在是一个常量字符串，处境（fish:wake-now）走 context。
+  // 顺序仍保持 9250 / 9251：信念（9000）之后，账本挪来的外来段（9400+）之前。
   assert.ok(
     WAKE_ORDER > BELIEFS_ORDER,
-    `处境要排在信念后面（WAKE_ORDER=${WAKE_ORDER}，BELIEFS_ORDER=${BELIEFS_ORDER}）`,
+    `叫醒说明要排在信念后面（WAKE_ORDER=${WAKE_ORDER}，BELIEFS_ORDER=${BELIEFS_ORDER}）`,
   )
+  assert.ok(WAKE_NOW_ORDER > WAKE_ORDER, '处境紧跟在说明之后')
 
-  // 宿主按 order 升序渲染：排一遍，处境必须是最后一个「她自己的」段。
+  // 宿主按 order 升序渲染：排一遍，说明段必须是最后一个「她自己的」system 段。
   const sections = [
     { name: IDENTITY_SECTION, order: IDENTITY_ORDER },
     { name: TOOLS_SECTION, order: TOOLS_ORDER },
