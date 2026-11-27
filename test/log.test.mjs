@@ -37,6 +37,7 @@ import { appendEvent, readEvents } from '../lib/store.js'
 import { withUse } from '../lib/use.js'
 import { addNote } from '../lib/note.js'
 import { makeAppointment } from '../lib/appoint.js'
+import { logQuotaSkip } from '../lib/quota.js'
 
 async function tempRoot() {
   return await mkdtemp(join(tmpdir(), 'fish-log-'))
@@ -51,8 +52,34 @@ test('写一行就能读回来，带级别与时间戳', async () => {
   assert.match(tail.lines[0], /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[info\] 你好$/)
 })
 
-test('tailLog 只给最后 N 行，并且丢掉被截断的半截首行', async () => {
+test('配额满了留一行：kind + 当日计数（issue #179 后续）', async () => {
   const root = await tempRoot()
+  assert.equal(logQuotaSkip('letter', { used: 1, cap: 3, root }), true)
+  const line = tailLog(root).lines[0]
+  assert.match(line, /\[info\] 配额满了，这一步没写：/)
+  assert.match(line, /kind=letter/)
+  assert.match(line, /today=1\/3/)
+  // 只写日志：root 是怪值也不抛，跟 logLine 一样返回 false
+  assert.equal(logQuotaSkip('letter', { used: Number.NaN, cap: -1, root: 42 }), false)
+})
+
+test('预约簿排满时也留一行，排障时能看出卡在哪', async () => {
+  const root = await tempRoot()
+  const due = new Date(Date.now() + 3 * 86_400_000)
+  const dk = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`
+  // 前后十分钟内不能有第二条，所以按 15 分钟一档排
+  const slots = ['09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45']
+  for (const [i, time] of slots.entries()) {
+    const r = await makeAppointment(root, { what: `第九件之前的事 ${i}`, due: dk, time })
+    assert.equal(r.ok, true, `${time} 被拒了：${r.note}`)
+  }
+  const over = await makeAppointment(root, { what: '第九件要去做的事', due: dk, time: '11:15' })
+  assert.equal(over.ok, false)
+  const lines = tailLog(root).lines
+  assert.ok(lines.some((l) => l.includes('kind=appoint') && l.includes('today=8/8')), lines.join('\n'))
+})
+
+test('tailLog 只给最后 N 行，并且丢掉被截断的半截首行', async () => {  const root = await tempRoot()
   for (let i = 0; i < 12; i += 1) logLine('info', [`第 ${i} 行`], root)
   const tail = tailLog(root, { lines: 3 })
   assert.equal(tail.lines.length, 3)
