@@ -6,10 +6,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { registerCapture, debrief } from '../lib/capture.js'
-import { readEvents, paths, writeConfig } from '../lib/store.js'
+import { readEvents, paths, writeConfig, appendEvent } from '../lib/store.js'
 import { saveChannel } from '../lib/channels.js'
 import { normalizeConfig } from '../lib/settings.js'
 import { deriveSelf } from '../lib/derive.js'
+import { worldBeliefsOf } from '../lib/persona.js'
 
 async function withRoot(fn) {
   const root = await mkdtemp(join(tmpdir(), 'fish-cap-'))
@@ -277,6 +278,95 @@ test('群房里她写东西不记 seen:；家里那间照记（issue #34）', as
     )
     assert.equal(atHome.ok, true)
     assert.equal(await seenCount(root), 1, '家里那条会话照记 seen:')
+  })
+})
+
+// ---- 2026-11-27（外部报告）：群里写下的那条，场次要跟着落下 ----
+// 现场：她在群房那轮对群友起了心思、调 growth_commit 记下来，落的是一条没有任何
+// 场次标记的 utterance。三处于是各说各话——体检的「她在群里说过的话」数不到它、
+// `/say` 的落盘额度反被它占、事后也分不出这条是在哪儿说的。
+// 事件流只追加，老事件不补写：这条只保证以后写的那几条带得上。
+test('群房里她调 growth_commit：写下的那条带 scene:group；书房那条不带（2026-11-27）', async () => {
+  await withRoot(async (root) => {
+    const ctx = fakeCtx()
+    registerCapture(ctx, { root })
+    const tool = ctx.regs.get('growth_commit')
+    await saveChannel(root, { channel: 'qq-group:1', scene: 'group', sessionId: 's-group', title: '摸鱼群' })
+
+    const inGroup = await tool.execute(
+      { type: 'utterance', text: '老王这人嘴硬心软。', topic: '老王' },
+      { agent: { session: { id: 's-group' } } },
+    )
+    assert.equal(inGroup.ok, true)
+
+    const atHome = await tool.execute(
+      { type: 'utterance', text: '晚上比白天安静。' },
+      { agent: { session: { id: 's-home' } } },
+    )
+    assert.equal(atHome.ok, true)
+
+    const { events } = await readEvents(root)
+    const group = events.find((e) => e.id === inGroup.id)
+    const home = events.find((e) => e.id === atHome.id)
+    assert.equal(group.scene, 'group', '群房里写的那条要带场次')
+    assert.equal(home.scene, undefined, '书房那条不落 scene（desk 是默认值，落库时省掉）')
+  })
+})
+
+// ---- 同类缺口的另一半：topic 填的是人，就得挂到人身上 ----
+// 不补 who 的时候，「老王这人嘴硬心软」既不在人物段（people.js 只按 who 建人），
+// 又留在「## 你自己说过的话」里（worldBeliefsOf 的人名集合来自同一批人）——
+// 一句关于人的判断被当成她对世界的判断。只认已经出现过的名字，不按 topic 凭空建人。
+test('群房里记一个认识的人：topic 命中 who.name 就补 who，不进「你自己说过的话」（2026-11-27）', async () => {
+  await withRoot(async (root) => {
+    // 老王此前在群里说过话——他的名字因此「出现过」一次
+    await appendEvent(
+      { type: 'voice', text: '这个游戏好玩吗', scene: 'group', who: { id: 'qq:10001', name: '老王' } },
+      { day: 1, stage: 1, source: 'system' },
+      root,
+    )
+    const ctx = fakeCtx()
+    registerCapture(ctx, { root })
+    const tool = ctx.regs.get('growth_commit')
+    await saveChannel(root, { channel: 'qq-group:1', scene: 'group', sessionId: 's-group', title: '摸鱼群' })
+
+    const out = await tool.execute(
+      { type: 'utterance', text: '老王这人嘴硬心软。', topic: '老王' },
+      { agent: { session: { id: 's-group' } } },
+    )
+    assert.equal(out.ok, true)
+
+    const { events } = await readEvents(root)
+    const ev = events.find((e) => e.id === out.id)
+    assert.deepEqual(ev.who, { id: 'qq:10001', name: '老王' }, 'topic 命中人名就补 who，id 沿用那个人的')
+
+    const model = deriveSelf(events, {})
+    const wang = model.people.find((p) => p.name === '老王')
+    assert.ok(wang, '要挂到老王名下')
+    assert.equal(wang.judgments.length, 1)
+    assert.ok(
+      worldBeliefsOf(model).every((b) => !String(b.text).includes('嘴硬心软')),
+      '挂到人身上的判断不许再出现在「你自己说过的话」里',
+    )
+  })
+})
+
+test('topic 不是人名（短标签）时照样不建人：规矩那条也不许变成一个人（2026-11-27）', async () => {
+  await withRoot(async (root) => {
+    const ctx = fakeCtx()
+    registerCapture(ctx, { root })
+    const tool = ctx.regs.get('growth_commit')
+
+    const label = await tool.execute({ type: 'utterance', text: '熬夜不好。', topic: '熬夜' })
+    assert.equal(label.ok, true)
+    const rule = await tool.execute({ type: 'utterance', text: '不替别人改自己。', topic: '规矩' })
+    assert.equal(rule.ok, true)
+
+    const { events } = await readEvents(root)
+    assert.equal(events.find((e) => e.id === label.id).who, undefined, '短标签不是人，不补 who')
+    assert.equal(events.find((e) => e.id === rule.id).who, undefined, '规矩更不是人')
+    const model = deriveSelf(events, {})
+    assert.equal(model.people.filter((p) => p.id !== 'owner').length, 0, '不许凭空建人')
   })
 })
 

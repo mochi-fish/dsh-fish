@@ -207,6 +207,29 @@ test('一天八条封顶：第九个人不再落', async () => {
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
 })
 
+// 2026-11-27：她自己调 growth_commit 认下来的判断，在群房里现在也会带 scene:'group'。
+// 那是另一件事，不该占掉「她今天在群里说过几句话」的名额——否则她越认真想事儿，
+// 这里越快封顶，真正说出口的话反而留不下来。
+test('她自己写下的判断不占「她在群里说过的话」的额度（2026-11-27）', async () => {
+  const root = await tmpRoot()
+  try {
+    await seed(root)
+    await config(root, { enabled: true, perDayMax: 1 })
+    // 先有一条她认下来的判断（source:'tool'、没有 uncommitted，带群聊场次）
+    await appendEvent(
+      { type: 'utterance', text: '张三这人说话不绕。', scene: 'group' },
+      { day: 1, stage: 1, source: 'tool' },
+      root,
+    )
+    const { ctx, emit } = fakeCtx()
+    speak(ctx, emit, '听得见。')
+    await sayToHer(ctx, '在吗', { root, waitMs: 5_000, channel: 'qq-group:1', scene: 'group', speaker: '张三' })
+    const lines = await groupLines(root)
+    assert.equal(lines.length, 2, '封顶数的是被动落下来的那些，她自己的判断不算')
+    assert.equal(lines.filter((l) => (l.flags ?? []).includes('uncommitted')).length, 1)
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+})
+
 test('一条超字数就截断，不整条丢', async () => {
   const root = await tmpRoot()
   try {
