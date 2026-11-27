@@ -16,7 +16,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { pickHearSentence, pickHearStatus, hearTurn, rememberGroupWord, latestHeardId, HEAR_LINK_DAYS, HEAR_SNIPPET, HEAR_MIN_CHARS } from '../lib/hear.js'
+import { pickHearSentence, pickHearStatus, stripBridgeEnvelope, hearTurn, rememberGroupWord, latestHeardId, HEAR_LINK_DAYS, HEAR_SNIPPET, HEAR_MIN_CHARS } from '../lib/hear.js'
 import { hearMark, bumpTurns } from '../lib/home.js'
 import { readEvents, appendEvent } from '../lib/store.js'
 import { validateEvent, isContactEvent } from '../lib/schema.js'
@@ -76,6 +76,46 @@ test('旁听：桥加在开头的来源抬头不会被当成「他说」的那�
 })
 
 // ---------------------------------------------------------------- 写事件
+
+test('旁听：桥套的 <user_message> 包装不会被当成「他说」的那句（issue #180）', () => {
+  // 2026-11-27：QQ 桥递进来的是整段 XML 包装。包装行四十多个字符、他说的话十几个，
+  // 取最长句就记成了包装——她每轮读到「你记着他说过的一句：「<user_message qq=…」。
+  const raw = '<user_message qq="1778861520" nickname="\u2060">我回来了，感觉怎么样</user_message>'
+  assert.equal(stripBridgeEnvelope(raw), '我回来了，感觉怎么样')
+  assert.equal(pickHearSentence(raw), '我回来了，感觉怎么样')
+  // 换行包的形状也认
+  assert.equal(
+    pickHearSentence('<user_message qq="1">\n我回来了，感觉怎么样\n</user_message>'),
+    '我回来了，感觉怎么样',
+  )
+  // 短状态句同样先剥包装
+  assert.equal(pickHearStatus('<user_message qq="1">到家了</user_message>'), '到家了')
+  // 正文中间提到这个词、或者整段不像包装的，一个字都不动——宁可漏裁
+  const prose = '我跟他聊了 <user_message> 这个标签是怎么回事'
+  assert.equal(stripBridgeEnvelope(prose), prose)
+  assert.equal(pickHearSentence(prose), prose)
+  // 包装没闭合（桥中途断了）：标签照样不是他的话，只把标签去掉，字留着
+  assert.equal(stripBridgeEnvelope('<user_message qq="1">这半截没闭合'), '这半截没闭合')
+})
+
+test('旁听：记住的那句挂在他身上（issue #181）', async () => {
+  await withRoot(async (root) => {
+    const cfg = { memory: { hearEvery: 3 } }
+    await hearTurn(root, {
+      text: '今天我在想一件事，想了很久',
+      turns: 3,
+      day: 2,
+      stage: 1,
+      config: cfg,
+      who: { id: 'owner', name: '' },
+    })
+    const { events } = await readEvents(root)
+    const heard = events.filter((e) => e.type === 'heard')
+    assert.equal(heard.length, 1)
+    // 不带 who 的话 people.js 的 firstAt / said 永远是空，身份段只能退回兜底。
+    assert.deepEqual(heard[0].who, { id: 'owner', name: '' })
+  })
+})
 
 test('旁听：不到轮数不写，到了才写一条 heard', async () => {
   await withRoot(async (root) => {

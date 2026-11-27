@@ -115,6 +115,28 @@ test('老账本兜底：一条 who 都没有时，S0 那几行照旧出现', () 
   assert.deepEqual(peopleSection({ day: 7, people: [] }), '', '什么都没有就整段不出现')
 })
 
+test('身份段：who 出现得比第一次说话晚，日期不跳到今天（issue #181）', () => {
+  // 2026-11-27 真机：`firstAt` 只认带 `who` 的事件，而 `who` 是 1.0.9 才写的。
+  // 于是 11 月 1 日见面、11 月 27 日才有第一条带 who 的记录，身份段就写成
+  // 「第一次说话：11 月 27 日，到今天第 31 天」——两行自相矛盾。
+  const late = '2026-11-27T02:00:00.000Z'
+  const model = {
+    day: 31,
+    firstMetAt: T1,
+    recentHeard: [{ text: '我回来了，感觉怎么样。' }],
+    people: peopleOf([
+      ev({ id: 'e1', type: 'utterance', ts: late, text: '我回来了，感觉怎么样。', who: OWNER }),
+    ]),
+  }
+  const section = peopleSection(model)
+  assert.match(section, /第一次说话：11 月 1 日/)
+  assert.doesNotMatch(section, /11 月 27 日/)
+  // 反过来：账本里的 who 比 firstMetAt 更早（导进来的旧事件）时，取更早的那个
+  const earlier = peopleOf([ev({ id: 'e1', type: 'heard', ts: '2026-10-20T10:00:00.000Z', text: '在，今天有点累。', who: OWNER })])
+  const back = peopleSection({ day: 3, firstMetAt: T1, people: earlier })
+  assert.match(back, /第一次说话：10 月 20 日/)
+})
+
 test('预算：超了就停，不硬塞', () => {
   const people = peopleOf([
     ev({ id: 'e1', type: 'heard', ts: T1, text: '在。', who: OWNER }),
