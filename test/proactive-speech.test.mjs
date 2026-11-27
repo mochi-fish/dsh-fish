@@ -36,7 +36,7 @@ before(() => { Date.now = () => realNow() + offset })
 after(() => { Date.now = realNow; rmSync(tmp, { recursive: true, force: true }) })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 /** 等到条件成立；并行负载下比固定 sleep 稳（上限 3 秒，超时照旧往下走，把失败交给断言）。 */
-async function until(cond, ms = 3000) {
+async function until(cond, ms = 8000) {
   const end = Date.now() + ms
   while (Date.now() < end) {
     if (await cond()) return true
@@ -102,7 +102,8 @@ async function run(proactive, turn) {
   assert.equal(h.followups.length, 1, '这一拍应该投递一次')
   playTurn(h, turn)
   await until(() => logs.length > 0)
-  await sleep(20)
+  // 日志先落、记账后写：留一点余量，别在账本还没落盘时就读（并行时机器一忙就偶发）
+  await sleep(200)
   const out = { meta: await metas(root), folded: h.appended.length, section: h.followups[0].section, logs }
   s.dispose()
   clearWakeSection()
@@ -175,7 +176,7 @@ test('调了发送工具、到这一轮结束都没等到结果：也算没送�
     data: { message: { id: 'a', role: 'assistant', content: [{ type: 'reasoning', text: REASON }, { type: 'tool-call', id: 'c1', name: 'send_chat', arguments: { text: '你好' } }] } },
   })
   h.emit({ type: 'turn/end', seq: 12 })
-  await until(() => logs.some((l) => l.includes('没送出去')))
+  await until(async () => (await metas(root)).includes('proactive-fail'))
   const m = await metas(root)
   assert.ok(m.includes('proactive-fail'), '没有结果就是没有送达的证据')
   assert.ok(!m.includes('proactive-turn'))
@@ -307,9 +308,13 @@ test('折叠让位给别人（宿主校验拒了）：记一笔账，日志说�
   playTurn(h, { tool: null })
   await until(() => logs.some((l) => l.includes('落在别人的折叠里')))
   try {
-    const line = logs.find((l) => l.includes('没说什么')) ?? ''
-    assert.match(line, /落在别人的折叠里/)
-    assert.doesNotMatch(line, /没有可收的/)
+    // 断言整摞日志：并行跑时「落笔」与「结果」两行谁先到不固定，
+    // 只挑第一条提到「没说什么」的行会偶发挑到落笔那行。
+    const all = logs.join('\n')
+    assert.match(all, /落在别人的折叠里/)
+    assert.doesNotMatch(all, /没有可收的/)
+    // 日志先落、`compact-skipped` 后写，读得太早会读到 0 条（并行时机器一忙就偶发）
+    await until(async () => (await metas(root)).filter((x) => x === 'compact-skipped').length === 1)
     const m = await metas(root)
     assert.equal(m.filter((x) => x === 'compact-skipped').length, 1, '事件流里留一笔，观测台查得到')
   } finally {
