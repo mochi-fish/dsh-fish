@@ -485,9 +485,16 @@ export interface ObserveStatePayload {
   grants: any
   config: {
     window: TimeWindow
+    wakesPerDay: FishConfig['wakesPerDay']
     daily: FishConfig['daily']
     diary: { enabled: boolean; visible: boolean }
     absenceAfterDays: number
+    works: FishConfig['works']
+    drive: FishConfig['drive']
+    interest: FishConfig['interest']
+    dream: FishConfig['dream']
+    cue: FishConfig['cue']
+    memory: Pick<FishConfig['memory'], 'selfWake' | 'echo'>
     proactive: FishConfig['proactive']
     self: { pronoun: SelfPronoun }
   }
