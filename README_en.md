@@ -39,7 +39,7 @@
 - 🌊 **[Paired Single-Session Companion Architecture: `mochi-fish/fish-sessionless`](https://github.com/mochi-fish/fish-sessionless)**
 
 > [!NOTE]
-> **Current Version: `1.1.1`**. This release is all follow-up fixes: the identity claim on write paths now keys off session id, so a session that changed its working directory is no longer treated as "another home"; bridges that create sessions outside her home can claim them via `config.bridge.dirs` or an explicit `POST /claim` guarded by a local token; growth days read as "31 days" with "growth cycle 30 days" as a subline; `tools/check-install.mjs` recognises which profile actually installed her; and a proactive turn no longer fires every 30 minutes when the doing loop is on. Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
+> **Current Version: `1.1.2`**. This release adds a **memory star map**: the old "check-up" button becomes a full page with a browsable map, search, playback, the check-up numbers, and PNG export. It also settles the ledgers of anyone who speaks through a bridge: after a room rotation, `/say` now shows the handoff page; group members' lines no longer count as "{T} said it"; and "she tried to send but it did not go out" is recorded separately from "she chose not to speak". Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 

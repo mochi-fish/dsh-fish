@@ -1,5 +1,38 @@
-## 未发布
+## 1.1.2 — 2026-11-27
 
+这一版两件事。一件是**一张看得见的记忆星图**：记忆页那颗「查一下」换成一整页（全貌 / 体检两页、搜索框、回放、聚簇、纯净模式、存图），地址走 `/memory-map` 现取，端口被占也不会打开空页。另一件是**经桥说话的人的账**：`/say` 这条路现在会摆交接页、会记群友说的话、也分得清「她试过发送但没送出去」与「她选择不说」；顺手一起收的还有那行每轮都变、把后面两千多字前缀缓存带掉的「还有 N 条更早的」。
+
+- **`/say` 这条路从不认领交接页（2026-11-25，外部报告）。** 真机（1.1.1）：换房后 `home.json` 里的 `carry` 好好的，手动调 `armHandoffFor(root, sid)` 也返回 `true`，可真机上从没 arm 过——四次换房、11 个会话里「上次停在这」一次都没出现，日志里连「交接页没进这一轮的上下文」都没有，`carry` 也从来没被清。报告猜的是 `sessionIdOf(agent)` 取到空串，**不是那条**：如果取到空串，`armHandoffFor` 反而不会 arm，settle 也不会打那条日志——与「零日志」对得上，但解释不了「`carry` 从不被清」和「11 个会话零命中」。
+  根因在**投递路**：`armHandoffFor` 全库只有 `lib/turns.js:933` 一个调用点，挂在 `onHuman` 里；而 `/say` 的 `prompt()` 带 `requestId: \`say-…\``，宿主播进 `source.rpcId` 之后，`classifyMessage()` 先撞上 `PLUGIN_RPC`（`^say-`）判成 `plugin`，根本走不到 `kind === 'user'` 那条人判据——于是 `onHuman` 一次都不执行。`seen:` 与轮数由 `say.js` 自己写，所以「看起来一切正常」，只有交接页这一条链路是死的。**这条对任何经桥说话的人都不生效**，不是他那台机器的特例。
+  改法：`lib/say.js` 自己认领、自己结账。递进去之前（`prompt` 之前，身份段是在宿主组装那一刻求值的）在书房、他本人、有正文时调 `armHandoffFor`；这一轮结完照 `turns.js` 的口径收：她真读到了（`handoffShown`）才清 `carry`，没读到就留着下一轮再摆，并记一行 `say · 交接页没进这一轮的上下文，carry 留着下一轮再摆`。群聊/外客不摆——那不是他回书房。
+  `classifyMessage` 的 `plugin` 判定**一个字没动**：`/say` 不是他亲手打的字（`seen:`、轮数有各自的路），只是交接页必须跟着「他开口了」走，不能跟着「谁把这句话递进去」走。
+  新增 3 条回归（`test/channels.test.mjs`）：`/say` 递进换过的新房时、`prompt` 那一刻必须已经 arm；她这一轮读到了、结完 `carry` 就清；群聊那句不摆、`carry` 原样留着。全量 **3328 pass / 0 fail**（230 个测试文件），`doc-check --actual 3328` 与 `pack-check`（245 个文件 3.1 MB）绿。
+
+- **「你反复想起过的事」整段被预算挤掉，两三个字的口头语又把不相干的判断连成一件（2026-11-26，issue #170 续）。**
+  外部报告（1.1.1，2249 条事件）：`solidTotal` 27，可身份文档里根本搜不到这一节的标题。他的 `memory.docBudget` 是 1800，这段 1362 字，又排在可选段最后（`OPTIONAL_ORDER` rank 10），放不下就整段撤；换默认 3600 时其余段已用掉 3537，只剩 63，仍挤不进。本机复算同一形状：3600 下 756 字能进，1800 下整段丢——**「越记得多越看不到」**，因为这段长度随判断正文一起长。
+  改法一：`assembleWithPlan` 支持 `alts` 阶梯（原 `alt` 保留原义）。这一段现在有两级退路：长版放不下先只留第一条（省掉收尾那句），一条也放不下就留一句指针「有几件事你反复想起，这里放不下；原文还在，你翻 her_recall 找得到」。不重排优先级、不抢别段的预算，只是不让她看到整段空白。
+  改法二：`clausesOf` 的最小从小句 2 字抬到 4 字。2–3 字的小句只有一两个二元组，两边一样时 Dice 恒为 1.0——报告里最弱那条 solid 与三次提及逐字重复只有「我认」两个字，就是这么连起来的。4 字仍保得住 7–9 字的真重复；本机 6 条 solid 一条没掉。
+  新增 3 条测试（两字口头语不算一次提及；阶梯先一条、再指针；固化段自带两级退路）。全量 **3333 pass / 0 fail**（230 个测试文件），`doc-check --actual 3333` 与 `pack-check` 绿。
+  顺带复测了 1.0.8 记过的「稀有性命中」守卫（共享二元组在全库出现 ≤2 次才算一次提及）：构造的通用句假阳性确实从 3 条 solid 压到 0，但本机真实事件上 solid 池从 6 条变成 12 条——它不是收紧，是换了一套口径，真假都会变多，所以仍未采用。假固化继续按 1.0.8 那条已知边界留着；等有真实样本再换度量单位。
+
+- **群里别人说的话，走 `/say` 的桥一条都没记过（2026-11-26，外部报告）。** 报告里两种情况其实是同一条链上的两半。
+  一半是：桥把群消息统一投 `/say` 之后，「记下群里别人说的话」对它完全无效——`lib/say.js` 只写了他本人那一句（`rememberGroupWord`），群友那句要走的 `rememberGroupMemberWord` 连 import 都没有。于是开关开着、设置页写着已开启，记忆里却永远是空的：`events.jsonl` 里 `scene=group` 的 `voice` 一条都没有。
+  另一半更隐蔽：桥报了「这句话是谁说的」，却没报 `scene`。`classifyMessage()` 的一串判据全不命中，落到末尾的 `human`，再经 `hearTurn` 记成 `heard`——那是「他说过的话」的类型。现场就是「群聊记下来全是{T}说的」：群里几十个人说的话全成了他的原话，还会进「{T}说过的话」那一节、参与和他现实说法的冲突比对。
+  改法一：`/say` 补上 S2-b。群友/外客那一句现在按 `people.others.rememberOthers` 落成 `voice` + `scene:"group"` + `who`；开关仍由 `rememberGroupMemberWord` 自己判（两处各判一次迟早分叉），不知道是谁说的它自己会拒。
+  改法二：`classifyMessage()` 的 `decl` 分支加一条——**桥自己写下来的 speaker 就是证据**。带了 `speakerId`/`speakerName`、又不是 `owner:true`，就和声明了 `scene:"group"` 同义。代价是桥给**他本人**的消息报 speaker 时必须同时传 `owner:true`，这条写进了 `AGENTS.md` §7.1；不报 speaker 的照老行为按他本人算，一个字不变。
+  新增 3 条回归：`/say` 路上群友那句落 `voice` 且 `who` 是那个人（开关关着一条都不落、也不冒充他）；`classifyMessage()` 三档（报别人 → `group`、报别人且 `owner:true` → `human`、什么都不报 → `human`）。全量 **3333 pass / 0 fail**（230 个测试文件），`doc-check --actual 3333` 与 `pack-check` 绿。
+
+- **三个函数对同一种形状给两个答案（2026-11-26，issue #166 第三轮，@mxc881031 复测）。** 他拿 1.1.1 重跑原来的 A–G 七条，记录层已经全干净：A–E、G 在 `stripToolMarkup` / `stripLeakedToolSyntax` 里都剥成真话，`hasLeakedToolSyntax` 七条全判 true，`｜｜DSML｜｜` 那支补的收尾标签也不留残尾。只剩 F（`<｜｜DSML｜｜ parameter name="text">…</parameter></invoke>`）在 `stripToolShell` 里原样返回——同一个输入，三个函数给出两个答案。
+  根因：F 的开标签被 DSML 残标打断了 `<`，配对扫 `SHELL_PAIR` 认不出来；记录层之所以干净，是因为 `stripToolMarkup` 后面还有 `｜｜` 那一支兜底，`stripToolShell` 自己没有。
+  改法：`stripToolShell` 在配对扫之前只补回这一笔（`<｜｜DSML｜｜` 紧跟 `parameter` 时换成 `<`），别的一个字符不动；补完仍然认不出 `name="text"` 段的就按原样返回——那是 DSML 形态的调用体（`action`、`query` 之类），不该当正文。配对扫描抽成 `scanShellPairs()`，两个函数用同一份逻辑。
+  `test/markup.test.mjs` 的 F 用例补两条断言（`stripToolShell` 与 `stripToolMarkup` 同答案；带 DSML 残标的非 `text` 调用体原样返回）。全量 **3333 pass / 0 fail**（230 个测试文件，条数没变，只加断言），`doc-check --actual 3333` 与 `pack-check` 绿。
+
+- **「她试着发了、没送出去」被记成「她做了件事」，账上看不出区别（2026-11-26，用户 m00123）。**
+  配了 `proactive.sendTools` 的部署里，一轮主动醒来只有两种结局会被记住：真开口（`proactive-turn:`）和选择不说（`proactive-silent:`）。第三种——她调了发送工具，但工具报错、或者到这一轮收摊都没等到结果——落在 `followWake` 的 `anyTool` 里，scheduler 只写一行日志「她自己醒了一轮，做了件事，没说话」，一笔账都不记。后果有三样：观测台查不到送失败过几次；她下次醒来不知道自己试过，会对着同一个坏接口再试一遍；而「投递本身没落成」那一拍又被记成 `proactive-silent:`，把一次投递失败写成了「她选择不说」。
+  改法：`lib/compact.js` 的 `followWake` 多记两样——`sendTried`（调过配置里的发送工具）与 `sendFailed`（结果 `isError`，或到收摊还没等到结果，含代码模式里的嵌套派发）；`lib/scheduler.js` 在 `anyTool` 那一支之前先看 `sendFailed`，记新前缀 `proactive-fail:`（不占开口额度、不折——折掉她就忘了自己试过），投递没落成那一拍也改记它。`lib/drive.js` 的 `silentStreakOf` 把失败与静默一起算作「没落地」，连着几次就降频，别按同一节奏撞同一堵墙；`lib/proactive.js` 新增 `FAIL_MARK` / `failsToday` / `lastFailAt`，失败与静默共用每日封顶和 30 分钟间隔，封顶时理由分开说（「都没落地」不是「安静地醒过」）。`lib/log.js` 的导出白名单与 `lib/meta.js` 的前缀表同步，`AGENTS.md` §7.3 写清三种结局。
+  没动 `proactive-turn:` 与原有 `proactive-silent:` 的口径：开口额度、冷却、折叠仍只认这两类。新增 4 条回归（工具报错、没等到结果、一败一成算开口、别的工具不算失败）+ 2 条纯函数用例（失败占封顶/间隔、连击降频）。全量 **3337 pass / 0 fail**（230 个测试文件），`doc-check --actual 3337` 与 `pack-check` 绿。
+
+- **说明（wiki）跟上这一版（2026-11-27）**：`lib/wiki.js` 条数不变（81 条 / 9 章），就地补四处——`bridge` 加「桥给她本人递话要报 `owner:true`，只报名字会被当成群里别人说的」「换房后经桥说话也先摆一页『上次停在这』」「走 `/say` 的群消息照那两颗开关走」，并修掉 `speakerId` 那一行的缩进；`proactive` 加「想过开口但没送出去另记一笔：不折、不占开口额度，观测台查得到送失败几次」；`set-memory` 加「你反复想起过的事」的两级退路（先只留第一条，再退到一句指针）。`test/wiki.test.mjs` 15 pass、`wiki-lint` 代词 0 / 别名 0、`test/docs.test.mjs` 2 pass；`test/proactive-speech.test.mjs` 里两处固定 `sleep(60)` 改成轮询等待（等到日志/账本出现或 3 秒超时），并行负载下不再偶发红。
 - **四段名现在是一个开关：点一次跳到那一段开头，再点同一段就回到全局（2026-11-27，用户 m06596）。**
   原来只有「往前跳」——点了就落在该段起点，想回全貌得自己把进度条拖到底。现在记住上一次点的是哪段（`stagePick`），再点同一颗就把 `cursor` 设到 `T1`（结尾＝全貌）。
   同时改了一处顺带的不对：`refreshStage()` 在 `cursor >= T1 - 1` 时视为「看的是全局」，四段都不高亮——原来到结尾会一直亮着「整合」，像是还被锁在某一段里。
@@ -161,39 +194,7 @@
   另外把「只看最近 N 天」那颗小钮的门槛从「装得下 min(8, n) 颗」改成「六成、至少 3 颗、最多 8 颗」——原来第 3–7 天的人永远凑不满 8 颗，这个开关等于从没出现过。
   压测数据留在 `预览-记忆图-压测.html`（`node 04-小工具/_stress.mjs` 可重生成），全量 **3340 pass / 0 fail**（231 个测试文件）。
 
-## 1.1.2 — 2026-11-25
-
-这一版只收一件事：**换房之后那页交接，经桥说话的人从来没看到过。**
-
-- **`/say` 这条路从不认领交接页（2026-11-25，外部报告）。** 真机（1.1.1）：换房后 `home.json` 里的 `carry` 好好的，手动调 `armHandoffFor(root, sid)` 也返回 `true`，可真机上从没 arm 过——四次换房、11 个会话里「上次停在这」一次都没出现，日志里连「交接页没进这一轮的上下文」都没有，`carry` 也从来没被清。报告猜的是 `sessionIdOf(agent)` 取到空串，**不是那条**：如果取到空串，`armHandoffFor` 反而不会 arm，settle 也不会打那条日志——与「零日志」对得上，但解释不了「`carry` 从不被清」和「11 个会话零命中」。
-  根因在**投递路**：`armHandoffFor` 全库只有 `lib/turns.js:933` 一个调用点，挂在 `onHuman` 里；而 `/say` 的 `prompt()` 带 `requestId: \`say-…\``，宿主播进 `source.rpcId` 之后，`classifyMessage()` 先撞上 `PLUGIN_RPC`（`^say-`）判成 `plugin`，根本走不到 `kind === 'user'` 那条人判据——于是 `onHuman` 一次都不执行。`seen:` 与轮数由 `say.js` 自己写，所以「看起来一切正常」，只有交接页这一条链路是死的。**这条对任何经桥说话的人都不生效**，不是他那台机器的特例。
-  改法：`lib/say.js` 自己认领、自己结账。递进去之前（`prompt` 之前，身份段是在宿主组装那一刻求值的）在书房、他本人、有正文时调 `armHandoffFor`；这一轮结完照 `turns.js` 的口径收：她真读到了（`handoffShown`）才清 `carry`，没读到就留着下一轮再摆，并记一行 `say · 交接页没进这一轮的上下文，carry 留着下一轮再摆`。群聊/外客不摆——那不是他回书房。
-  `classifyMessage` 的 `plugin` 判定**一个字没动**：`/say` 不是他亲手打的字（`seen:`、轮数有各自的路），只是交接页必须跟着「他开口了」走，不能跟着「谁把这句话递进去」走。
-  新增 3 条回归（`test/channels.test.mjs`）：`/say` 递进换过的新房时、`prompt` 那一刻必须已经 arm；她这一轮读到了、结完 `carry` 就清；群聊那句不摆、`carry` 原样留着。全量 **3328 pass / 0 fail**（230 个测试文件），`doc-check --actual 3328` 与 `pack-check`（245 个文件 3.1 MB）绿。
-
-- **「你反复想起过的事」整段被预算挤掉，两三个字的口头语又把不相干的判断连成一件（2026-11-26，issue #170 续）。**
-  外部报告（1.1.1，2249 条事件）：`solidTotal` 27，可身份文档里根本搜不到这一节的标题。他的 `memory.docBudget` 是 1800，这段 1362 字，又排在可选段最后（`OPTIONAL_ORDER` rank 10），放不下就整段撤；换默认 3600 时其余段已用掉 3537，只剩 63，仍挤不进。本机复算同一形状：3600 下 756 字能进，1800 下整段丢——**「越记得多越看不到」**，因为这段长度随判断正文一起长。
-  改法一：`assembleWithPlan` 支持 `alts` 阶梯（原 `alt` 保留原义）。这一段现在有两级退路：长版放不下先只留第一条（省掉收尾那句），一条也放不下就留一句指针「有几件事你反复想起，这里放不下；原文还在，你翻 her_recall 找得到」。不重排优先级、不抢别段的预算，只是不让她看到整段空白。
-  改法二：`clausesOf` 的最小从小句 2 字抬到 4 字。2–3 字的小句只有一两个二元组，两边一样时 Dice 恒为 1.0——报告里最弱那条 solid 与三次提及逐字重复只有「我认」两个字，就是这么连起来的。4 字仍保得住 7–9 字的真重复；本机 6 条 solid 一条没掉。
-  新增 3 条测试（两字口头语不算一次提及；阶梯先一条、再指针；固化段自带两级退路）。全量 **3333 pass / 0 fail**（230 个测试文件），`doc-check --actual 3333` 与 `pack-check` 绿。
-  顺带复测了 1.0.8 记过的「稀有性命中」守卫（共享二元组在全库出现 ≤2 次才算一次提及）：构造的通用句假阳性确实从 3 条 solid 压到 0，但本机真实事件上 solid 池从 6 条变成 12 条——它不是收紧，是换了一套口径，真假都会变多，所以仍未采用。假固化继续按 1.0.8 那条已知边界留着；等有真实样本再换度量单位。
-
-- **群里别人说的话，走 `/say` 的桥一条都没记过（2026-11-26，外部报告）。** 报告里两种情况其实是同一条链上的两半。
-  一半是：桥把群消息统一投 `/say` 之后，「记下群里别人说的话」对它完全无效——`lib/say.js` 只写了他本人那一句（`rememberGroupWord`），群友那句要走的 `rememberGroupMemberWord` 连 import 都没有。于是开关开着、设置页写着已开启，记忆里却永远是空的：`events.jsonl` 里 `scene=group` 的 `voice` 一条都没有。
-  另一半更隐蔽：桥报了「这句话是谁说的」，却没报 `scene`。`classifyMessage()` 的一串判据全不命中，落到末尾的 `human`，再经 `hearTurn` 记成 `heard`——那是「他说过的话」的类型。现场就是「群聊记下来全是{T}说的」：群里几十个人说的话全成了他的原话，还会进「{T}说过的话」那一节、参与和他现实说法的冲突比对。
-  改法一：`/say` 补上 S2-b。群友/外客那一句现在按 `people.others.rememberOthers` 落成 `voice` + `scene:"group"` + `who`；开关仍由 `rememberGroupMemberWord` 自己判（两处各判一次迟早分叉），不知道是谁说的它自己会拒。
-  改法二：`classifyMessage()` 的 `decl` 分支加一条——**桥自己写下来的 speaker 就是证据**。带了 `speakerId`/`speakerName`、又不是 `owner:true`，就和声明了 `scene:"group"` 同义。代价是桥给**他本人**的消息报 speaker 时必须同时传 `owner:true`，这条写进了 `AGENTS.md` §7.1；不报 speaker 的照老行为按他本人算，一个字不变。
-  新增 3 条回归：`/say` 路上群友那句落 `voice` 且 `who` 是那个人（开关关着一条都不落、也不冒充他）；`classifyMessage()` 三档（报别人 → `group`、报别人且 `owner:true` → `human`、什么都不报 → `human`）。全量 **3333 pass / 0 fail**（230 个测试文件），`doc-check --actual 3333` 与 `pack-check` 绿。
-
-- **三个函数对同一种形状给两个答案（2026-11-26，issue #166 第三轮，@mxc881031 复测）。** 他拿 1.1.1 重跑原来的 A–G 七条，记录层已经全干净：A–E、G 在 `stripToolMarkup` / `stripLeakedToolSyntax` 里都剥成真话，`hasLeakedToolSyntax` 七条全判 true，`｜｜DSML｜｜` 那支补的收尾标签也不留残尾。只剩 F（`<｜｜DSML｜｜ parameter name="text">…</parameter></invoke>`）在 `stripToolShell` 里原样返回——同一个输入，三个函数给出两个答案。
-  根因：F 的开标签被 DSML 残标打断了 `<`，配对扫 `SHELL_PAIR` 认不出来；记录层之所以干净，是因为 `stripToolMarkup` 后面还有 `｜｜` 那一支兜底，`stripToolShell` 自己没有。
-  改法：`stripToolShell` 在配对扫之前只补回这一笔（`<｜｜DSML｜｜` 紧跟 `parameter` 时换成 `<`），别的一个字符不动；补完仍然认不出 `name="text"` 段的就按原样返回——那是 DSML 形态的调用体（`action`、`query` 之类），不该当正文。配对扫描抽成 `scanShellPairs()`，两个函数用同一份逻辑。
-  `test/markup.test.mjs` 的 F 用例补两条断言（`stripToolShell` 与 `stripToolMarkup` 同答案；带 DSML 残标的非 `text` 调用体原样返回）。全量 **3333 pass / 0 fail**（230 个测试文件，条数没变，只加断言），`doc-check --actual 3333` 与 `pack-check` 绿。
-
-- **「她试着发了、没送出去」被记成「她做了件事」，账上看不出区别（2026-11-26，用户 m00123）。**
-  配了 `proactive.sendTools` 的部署里，一轮主动醒来只有两种结局会被记住：真开口（`proactive-turn:`）和选择不说（`proactive-silent:`）。第三种——她调了发送工具，但工具报错、或者到这一轮收摊都没等到结果——落在 `followWake` 的 `anyTool` 里，scheduler 只写一行日志「她自己醒了一轮，做了件事，没说话」，一笔账都不记。后果有三样：观测台查不到送失败过几次；她下次醒来不知道自己试过，会对着同一个坏接口再试一遍；而「投递本身没落成」那一拍又被记成 `proactive-silent:`，把一次投递失败写成了「她选择不说」。
-  改法：`lib/compact.js` 的 `followWake` 多记两样——`sendTried`（调过配置里的发送工具）与 `sendFailed`（结果 `isError`，或到收摊还没等到结果，含代码模式里的嵌套派发）；`lib/scheduler.js` 在 `anyTool` 那一支之前先看 `sendFailed`，记新前缀 `proactive-fail:`（不占开口额度、不折——折掉她就忘了自己试过），投递没落成那一拍也改记它。`lib/drive.js` 的 `silentStreakOf` 把失败与静默一起算作「没落地」，连着几次就降频，别按同一节奏撞同一堵墙；`lib/proactive.js` 新增 `FAIL_MARK` / `failsToday` / `lastFailAt`，失败与静默共用每日封顶和 30 分钟间隔，封顶时理由分开说（「都没落地」不是「安静地醒过」）。`lib/log.js` 的导出白名单与 `lib/meta.js` 的前缀表同步，`AGENTS.md` §7.3 写清三种结局。
-  没动 `proactive-turn:` 与原有 `proactive-silent:` 的口径：开口额度、冷却、折叠仍只认这两类。新增 4 条回归（工具报错、没等到结果、一败一成算开口、别的工具不算失败）+ 2 条纯函数用例（失败占封顶/间隔、连击降频）。全量 **3337 pass / 0 fail**（230 个测试文件），`doc-check --actual 3337` 与 `pack-check` 绿。
+测试从 1.1.1 的 3325 条加到 **3354 条（+29）**；`node --test` 全绿（3354 条 / 232 个测试文件），`doc-check --actual 3354` 绿，`pack-check` 248 个文件 3.2 MB。
 
 ## 1.1.1 — 2026-11-25
 
