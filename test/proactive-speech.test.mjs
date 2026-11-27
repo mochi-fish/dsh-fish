@@ -35,6 +35,15 @@ let offset = 0
 before(() => { Date.now = () => realNow() + offset })
 after(() => { Date.now = realNow; rmSync(tmp, { recursive: true, force: true }) })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+/** 等到条件成立；并行负载下比固定 sleep 稳（上限 3 秒，超时照旧往下走，把失败交给断言）。 */
+async function until(cond, ms = 3000) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (await cond()) return true
+    await sleep(10)
+  }
+  return false
+}
 
 function host({ bail, append } = {}) {
   const listeners = []
@@ -92,7 +101,8 @@ async function run(proactive, turn) {
   await s.tick()
   assert.equal(h.followups.length, 1, '这一拍应该投递一次')
   playTurn(h, turn)
-  await sleep(60)
+  await until(() => logs.length > 0)
+  await sleep(20)
   const out = { meta: await metas(root), folded: h.appended.length, section: h.followups[0].section, logs }
   s.dispose()
   clearWakeSection()
@@ -165,7 +175,7 @@ test('调了发送工具、到这一轮结束都没等到结果：也算没送�
     data: { message: { id: 'a', role: 'assistant', content: [{ type: 'reasoning', text: REASON }, { type: 'tool-call', id: 'c1', name: 'send_chat', arguments: { text: '你好' } }] } },
   })
   h.emit({ type: 'turn/end', seq: 12 })
-  await sleep(60)
+  await until(() => logs.some((l) => l.includes('没送出去')))
   const m = await metas(root)
   assert.ok(m.includes('proactive-fail'), '没有结果就是没有送达的证据')
   assert.ok(!m.includes('proactive-turn'))
@@ -203,7 +213,7 @@ test('发送工具一败一成：送出去了就是开口，不记没送到', as
   h.emit({ type: 'tool/result', seq: 12, surfaceOp: 'append', data: { message: { role: 'tool', toolCallId: 'c1', isError: true, content: [{ type: 'text', text: 'x' }] } } })
   h.emit({ type: 'tool/result', seq: 13, surfaceOp: 'append', data: { message: { role: 'tool', toolCallId: 'c2', isError: false, content: [{ type: 'text', text: 'x' }] } } })
   h.emit({ type: 'turn/end', seq: 14 })
-  await sleep(60)
+  await until(async () => (await metas(root)).includes('proactive-turn'))
   const m = await metas(root)
   assert.ok(m.includes('proactive-turn'))
   assert.ok(!m.includes('proactive-fail'), '话已经送到，失败的那一次不该盖掉结果')
@@ -246,7 +256,7 @@ test('代码模式里的发送：嵌套派发按真正的工具名认', async ()
   h.emit({ type: 'tool/ptc-dispatch', seq: 12, data: { rootCallId: 'c1', subCallId: 'c2', name: 'send_chat', isError: false, content: [] } })
   h.emit({ type: 'tool/result', seq: 13, surfaceOp: 'append', data: { message: { role: 'tool', toolCallId: 'c1', isError: false, content: [{ type: 'text', text: 'x' }] } } })
   h.emit({ type: 'turn/end', seq: 14 })
-  await sleep(60)
+  await until(async () => (await metas(root)).includes('proactive-turn'))
   assert.ok((await metas(root)).includes('proactive-turn'))
   assert.equal(h.appended.length, 0)
   s.dispose()
@@ -295,7 +305,7 @@ test('折叠让位给别人（宿主校验拒了）：记一笔账，日志说�
   await s.tick()
   assert.equal(h.followups.length, 1)
   playTurn(h, { tool: null })
-  await sleep(60)
+  await until(() => logs.some((l) => l.includes('落在别人的折叠里')))
   try {
     const line = logs.find((l) => l.includes('没说什么')) ?? ''
     assert.match(line, /落在别人的折叠里/)
