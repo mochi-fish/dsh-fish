@@ -147,7 +147,7 @@ test('出门那条会话：身份用走时快照、并挂上兜底守卫；家�
     handler({ agent: {
       session: { header: { cwd: workDir } },
       ctx: {
-        systemPrompt: { section: (o) => sections.push(o) },
+        systemPrompt: { section: (o) => sections.push(o), context: (o) => sections.push(o) },
         tools: { guard: () => { guarded = true; return () => {} } },
         effect: (fn) => fn,
       },
@@ -160,14 +160,14 @@ test('出门那条会话：身份用走时快照、并挂上兜底守卫；家�
     let homeGuarded = false
     handler({ agent: {
       session: { header: { cwd: herDir } },
-      ctx: { systemPrompt: { section: (o) => homeSections.push(o) }, tools: { guard: () => { homeGuarded = true; return () => {} } } },
+      ctx: { systemPrompt: { section: (o) => homeSections.push(o), context: (o) => homeSections.push(o) }, tools: { guard: () => { homeGuarded = true; return () => {} } } },
     } })
     assert.equal(homeSections.length, 7)
     assert.equal(homeGuarded, false)
 
     // 无关的人：一段都不挂
     const others = []
-    handler({ agent: { session: { header: { cwd: join(root, 'somebody') } }, ctx: { systemPrompt: { section: (o) => others.push(o) } } } })
+    handler({ agent: { session: { header: { cwd: join(root, 'somebody') } }, ctx: { systemPrompt: { section: (o) => others.push(o), context: (o) => others.push(o) } } } })
     assert.equal(others.length, 0)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -194,7 +194,7 @@ test('先记账再建会话：会话还没有 cwd 也认得出是出门，并把
     handler({ agent: {
       session: { header: { id: 'session-out-1' } },
       ctx: {
-        systemPrompt: { section: (o) => sections.push(o) },
+        systemPrompt: { section: (o) => sections.push(o), context: (o) => sections.push(o) },
         tools: { guard: () => { guarded = true; return () => {} } },
         effect: (fn) => fn,
       },
@@ -227,7 +227,7 @@ test('台账记了 id、会话 header 没 cwd 时，靠 id 也认得出', async 
     let handler = null
     registerIdentity({ on: (e, fn) => { if (e === 'agent/created') handler = fn; return () => {} } }, { root, herDir, log: () => {} })
     const sections = []
-    handler({ agent: { session: { header: { id: 'session-out-2' } }, ctx: { systemPrompt: { section: (o) => sections.push(o) }, tools: { guard: () => () => {} }, effect: (fn) => fn } } })
+    handler({ agent: { session: { header: { id: 'session-out-2' } }, ctx: { systemPrompt: { section: (o) => sections.push(o), context: (o) => sections.push(o) }, tools: { guard: () => () => {} }, effect: (fn) => fn } } })
     assert.equal(sections.length, 7)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -246,7 +246,7 @@ test('认不出来时留一行日志，不静默跳过', async () => {
     let handler = null
     registerIdentity({ on: (e, fn) => { if (e === 'agent/created') handler = fn; return () => {} } }, { root, herDir, log: (l) => lines.push(String(l)) })
     const sections = []
-    handler({ agent: { session: { header: { id: 'session-other', cwd: join(root, 'somebody') } }, ctx: { systemPrompt: { section: (o) => sections.push(o) } } } })
+    handler({ agent: { session: { header: { id: 'session-other', cwd: join(root, 'somebody') } }, ctx: { systemPrompt: { section: (o) => sections.push(o), context: (o) => sections.push(o) } } } })
     assert.equal(sections.length, 0)
     assert.ok(lines.some((l) => l.includes('没对上')), '要有可排查的那一行')
   } finally {
@@ -263,7 +263,7 @@ function fakeAgent() {
   let guardDisposed = 0
   const agent = {
     ctx: {
-      systemPrompt: { section: (s) => { sections.push(s); return () => { sections.pop() } } },
+      systemPrompt: { section: (s) => { sections.push(s); return () => { sections.pop() } }, context: (s) => { sections.push(s); return () => { sections.pop() } } },
       tools: { guard: () => () => { guardDisposed += 1 } },
       effect: (fn) => fn,
     },
@@ -336,7 +336,7 @@ test('台账已经绑了会话 id 时，同一个工作区里别的会话不该�
       const agent = {
         session: { header: { id, cwd: ws } },
         ctx: {
-          systemPrompt: { section: (s) => { sections.push(s); return () => {} } },
+          systemPrompt: { section: (s) => { sections.push(s); return () => {} }, context: (s) => { sections.push(s); return () => {} } },
           tools: { guard: () => () => {} },
           effect: (fn) => fn,
         },
@@ -367,7 +367,7 @@ function fakeAgentWithHook() {
   let hookDisposed = 0
   const agent = {
     ctx: {
-      systemPrompt: { section: (s) => { sections.push(s); return () => { sections.pop() } } },
+      systemPrompt: { section: (s) => { sections.push(s); return () => { sections.pop() } }, context: (s) => { sections.push(s); return () => { sections.pop() } } },
       tools: { guard: () => () => { guardDisposed += 1 } },
       effect: (fn) => fn,
       on: (evt) => {

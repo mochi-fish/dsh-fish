@@ -111,10 +111,14 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   fs.writeFileSync(selfDocPath(root), '我是她', 'utf8')
 
   const calls = []
-  const agent = { ctx: { systemPrompt: { section: (o) => calls.push(o) } } }
+  const ctxs = []
+  const agent = { ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => ctxs.push(o) } } }
   const r = attachIdentity(agent, root)
   assert.equal(r.ok, true)
-  assert.equal(calls.length, 7, '身份一段 + 处境一段 + 手边一段 + 旧话一段 + 本子目录一段 + 交接页一段 + 规矩一段')
+  // 七样东西：六段走 section，旧话走 context（2026-11-28，外部报告：它在 system 通道里
+  // 一变就带得整份身份段重新 append 一遍）。段位总数不变，只是换了一条通道。
+  assert.equal(calls.length, 6, '身份 + 处境 + 手边 + 交接页 + 本子目录 + 规矩')
+  assert.equal(ctxs.length, 1, '旧话单独走 context')
   const sec = calls[0]
   assert.equal(sec.name, IDENTITY_SECTION)
   assert.equal(sec.order, IDENTITY_ORDER)
@@ -152,16 +156,17 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   assert.match(txt, /这件事我做不到/, '和兜底守卫同一句话术')
 
   // 第四段：这一句碰到的旧话（1.0.4）。平时空串，等于不存在。
-  const cue = calls[4]
+  const cue = ctxs[0]
   assert.equal(cue.name, CUE_SECTION)
   assert.equal(cue.order, CUE_ORDER)
+  assert.equal(cue.interpolate, false, '宿主插值只认 {{name}}，她的话里出现畸形花括号会 throw')
   assert.equal(typeof cue.text, 'function', '每一句都要现算，不能冻住')
   assert.equal(cue.text(), '', '这一句没碰到旧话就不占段位')
 
   // 第五段：本子上记着什么（2026-11-14，用户 m00533）。只说有哪些东西可翻，一个数字都不报
   // （note.js/appoint.js 的「不吃状态」硬约束）；它排在最末（9500），内容会变——
   // system prompt 缓存按前缀算，只让它自己失效。
-  const catalog = calls[5]
+  const catalog = calls[4]
   assert.equal(catalog.name, CATALOG_SECTION)
   assert.equal(catalog.order, CATALOG_ORDER)
   assert.ok(catalog.order > TOOLS_ORDER, '必须排在手边有什么之后（也就是整份提示词的最末）')
@@ -171,7 +176,7 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   // 第七段：规矩 + 本子上还开着的事（2026-11-20，issue #159，用户 m01439）。
   // 排 9550：在 catalog 与 cue 之间——规矩几乎不变，放进稳定前缀不带走后面；
   // cue 每轮都可能变，它排在规矩后面才不会把规矩带掉。
-  const rules = calls[6]
+  const rules = calls[5]
   assert.equal(rules.name, RULES_SECTION)
   assert.equal(rules.order, RULES_ORDER)
   assert.ok(rules.order > CATALOG_ORDER && rules.order < CUE_ORDER, '夹在 catalog 与 cue 之间')
@@ -191,6 +196,26 @@ test('attachIdentity：挂七段——交接页 + 身份 + 这一次的处境（
   const tailAfterNote = rules.text()
   assert.match(tailAfterNote, /## 你本子上还开着的事/)
   assert.match(tailAfterNote, /买猫粮/)
+})
+
+// 2026-11-28（外部报告 BUG-身份段每轮重发）：cue 是「他每说一句都可能换」的那种段，
+// 挂在 section 上时一变就带着整份身份段重新 append。宿主的 context 通道才是对的；
+// 老宿主没有 context 时**不许退回 section**——回退等于把每轮多付一份的毛病留着。
+test('attachIdentity：宿主没有 systemPrompt.context 时 cue 不挂，也不退回 section', () => {
+  resetIdentityCache()
+  clearWakeSection()
+  const root = tmp()
+  fs.mkdirSync(join(root, 'home'), { recursive: true })
+  fs.writeFileSync(selfDocPath(root), '我是她', 'utf8')
+
+  const calls = []
+  const logs = []
+  const agent = { ctx: { systemPrompt: { section: (o) => calls.push(o) } } }
+  const r = attachIdentity(agent, root, { log: (m) => logs.push(m) })
+  assert.equal(r.ok, true, '老宿主照样挂得上，只是少这一段')
+  assert.equal(calls.length, 6, '身份 + 处境 + 手边 + 交接页 + 本子目录 + 规矩')
+  assert.ok(!calls.some((c) => c.name === CUE_SECTION), 'cue 不许悄悄退回 section')
+  assert.ok(logs.some((m) => /systemPrompt\.context/.test(m)), '要在日志里留一句，别静默消失')
 })
 
 // 2026-11-20（issue #159）：规矩原来落在身份文档内部的中后段（8000 多字里的一段），
@@ -215,7 +240,7 @@ test('规矩块从身份段里摘出来、挂到最末（9550），提示词里�
   ].join('\n'), 'utf8')
 
   const calls = []
-  attachIdentity({ ctx: { systemPrompt: { section: (o) => calls.push(o) } } }, root)
+  attachIdentity({ ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => calls.push(o) } } }, root)
   const identity = calls.find((c) => c.name === IDENTITY_SECTION)
   const rules = calls.find((c) => c.name === RULES_SECTION)
 
@@ -257,7 +282,7 @@ test('出门那条会话：规矩留在冻结快照里，9550 那段空着（不
   fs.mkdirSync(join(root, 'home'), { recursive: true })
   const frozen = '## 现在\n我是她\n\n## 你自己定的规矩\n- 别乱花钱。'
   const calls = []
-  attachIdentity({ ctx: { systemPrompt: { section: (o) => calls.push(o) } } }, root, { frozen })
+  attachIdentity({ ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => calls.push(o) } } }, root, { frozen })
   const identity = calls.find((c) => c.name === IDENTITY_SECTION)
   const rules = calls.find((c) => c.name === RULES_SECTION)
   assert.match(identity.text(), /## 你自己定的规矩/, '快照原样带着规矩')
@@ -287,7 +312,7 @@ test('交接页段：真读出页面才记「她看到了」，没认领或没�
   const calls = []
   const agent = {
     session: { header: { id: 's-h' } },
-    ctx: { systemPrompt: { section: (o) => calls.push(o) } },
+    ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => calls.push(o) } },
   }
   attachIdentity(agent, root)
   const handoff = calls.find((c) => c.name === HANDOFF_SECTION)
@@ -310,7 +335,7 @@ test('attachIdentity：手边有什么这一段不能漏字面量 {T}（issue #1
   fs.writeFileSync(selfDocPath(root), '我是她', 'utf8')
 
   const calls = []
-  const agent = { ctx: { systemPrompt: { section: (o) => calls.push(o) } } }
+  const agent = { ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => calls.push(o) } } }
   assert.equal(attachIdentity(agent, root).ok, true)
   const tools = calls.find((c) => c.name === TOOLS_SECTION)
   const text = tools.text()
@@ -357,7 +382,7 @@ test('issue #110：同一轮里重写身份文档，system prompt 那一段不�
   const calls = []
   const agent = {
     session: { header: { id: 'session-issue110' } },
-    ctx: { systemPrompt: { section: (o) => calls.push(o) } },
+    ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => calls.push(o) } },
   }
   attachIdentity(agent, root)
   const sec = calls[0]
@@ -398,7 +423,7 @@ test('issue #110：轮边界才丢快照（user/message、turn/end），同轮�
   const calls = []
   const agent = {
     session: { header: { id: 'session-a', cwd: join(root, 'her') } },
-    ctx: { systemPrompt: { section: (o) => calls.push(o) } },
+    ctx: { systemPrompt: { section: (o) => calls.push(o), context: (o) => calls.push(o) } },
   }
   handlers['agent/created']({ agent })
   const sec = calls[0]
@@ -440,10 +465,10 @@ test('registerIdentity：只给她那个 agent 挂（按 cwd 判），别人不�
   assert.equal(typeof handler, 'function')
 
   const mine = []
-  handler({ agent: { session: { header: { cwd: herDir } }, ctx: { systemPrompt: { section: (o) => mine.push(o) } } } })
+  handler({ agent: { session: { header: { cwd: herDir } }, ctx: { systemPrompt: { section: (o) => mine.push(o), context: (o) => mine.push(o) } } } })
   const others = []
-  handler({ agent: { session: { header: { cwd: join(root, 'other') } }, ctx: { systemPrompt: { section: (o) => others.push(o) } } } })
-  handler({ agent: { session: { header: { cwd: '' } }, ctx: { systemPrompt: { section: (o) => others.push(o) } } } })
+  handler({ agent: { session: { header: { cwd: join(root, 'other') } }, ctx: { systemPrompt: { section: (o) => others.push(o), context: (o) => others.push(o) } } } })
+  handler({ agent: { session: { header: { cwd: '' } }, ctx: { systemPrompt: { section: (o) => others.push(o), context: (o) => others.push(o) } } } })
 
   assert.equal(mine.length, 7, '她那条会话必须挂上（身份 + 处境 + 手边 + 旧话 + 本子 + 交接页 + 规矩七段）')
   assert.equal(others.length, 0, '用户自己的会话不许挂')
@@ -474,14 +499,14 @@ test('registerIdentity：他开在她工作区里的会话（有 id、不在台�
   handler({
     agent: {
       session: { header: { id: 'session-her-1', cwd: herDir } },
-      ctx: { systemPrompt: { section: (o) => hers.push(o) } },
+      ctx: { systemPrompt: { section: (o) => hers.push(o), context: (o) => hers.push(o) } },
     },
   })
   const his = []
   handler({
     agent: {
       session: { header: { id: 'session-his-1', cwd: herDir } },
-      ctx: { systemPrompt: { section: (o) => his.push(o) } },
+      ctx: { systemPrompt: { section: (o) => his.push(o), context: (o) => his.push(o) } },
     },
   })
 
@@ -923,7 +948,7 @@ test('attachIdentity 顺手挂上组装钩子与正文清洗钩子，且拆卸�
   const hooks = []
   const agent = {
     ctx: {
-      systemPrompt: { section: (o) => { calls.push(o); return () => {} } },
+      systemPrompt: { section: (o) => { calls.push(o); return () => {} }, context: (o) => { calls.push(o); return () => {} } },
       on: (evt, fn, o) => { hooks.push({ evt, fn, o }); return () => {} },
     },
   }
@@ -1077,7 +1102,7 @@ test('处境按会话分开存：A 房间的一次叫醒，不许进 B 房间那
   const seen = []
   const mk = (id) => ({
     session: { header: { id } },
-    ctx: { systemPrompt: { section: (o) => seen.push({ id, o }) } },
+    ctx: { systemPrompt: { section: (o) => seen.push({ id, o }), context: (o) => seen.push({ id, o }) } },
   })
   const root = tmp()
   fs.mkdirSync(join(root, 'home'), { recursive: true })

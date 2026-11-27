@@ -46,7 +46,7 @@ function agentOf(sid, cwd, createdAt = Date.now()) {
         restrict: (filter) => { calls.push(filter); return () => {} },
         guard: (fn) => { guards.push(fn); return () => {} },
       },
-      systemPrompt: { section: (o) => { sections.push(o); return () => {} } },
+      systemPrompt: { section: (o) => { sections.push(o); return () => {} }, context: (o) => { sections.push(o); return () => {} } },
       effect: () => {},
     },
   }

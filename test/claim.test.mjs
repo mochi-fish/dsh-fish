@@ -134,7 +134,7 @@ test('身份：认领前一段不挂，认领后补挂', async () => {
   const sections = []
   const agent = {
     session: { header: { id: 'session-bridge-2', cwd: her } },
-    ctx: { systemPrompt: { section: (o) => { sections.push(o); return () => {} } } },
+    ctx: { systemPrompt: { section: (o) => { sections.push(o); return () => {} }, context: (o) => { sections.push(o); return () => {} } } },
   }
   ctx.emit('agent/created', { agent })
   assert.equal(sections.length, 0, '桥还没来信，先不挂她的身份')
