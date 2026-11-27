@@ -96,6 +96,16 @@ test('旁听：桥套的 <user_message> 包装不会被当成「他说」的那�
   assert.equal(pickHearSentence(prose), prose)
   // 包装没闭合（桥中途断了）：标签照样不是他的话，只把标签去掉，字留着
   assert.equal(stripBridgeEnvelope('<user_message qq="1">这半截没闭合'), '这半截没闭合')
+  // 属性值里带 `>`（昵称里就有）：不能按第一个 `>` 截断，否则标签残一半（issue #182 复核）
+  assert.equal(
+    stripBridgeEnvelope('<user_message qq="1" nickname="<蓝>">明天九点。</user_message>'),
+    '明天九点。',
+  )
+  // 包装没落在首尾（桥在前后又加了字）：纯标签行不能靠长度赢过正文（issue #182 建议 2）
+  assert.equal(
+    pickHearSentence('我跟他聊了这个标签是怎么用的\n<user_message qq="1778861520" nickname="">\n真的有意思'),
+    '我跟他聊了这个标签是怎么用的',
+  )
 })
 
 test('旁听：记住的那句挂在他身上（issue #181）', async () => {
