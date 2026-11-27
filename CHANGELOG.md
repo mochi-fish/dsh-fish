@@ -1,5 +1,13 @@
 ## 未发布
 
+- **插件里那页「哪都不对」：三颗体检钮点不动、判断/听说的事/对人的了解不见了、七个第一次没了、图例压着星盘（2026-11-27，用户 m06471）。**
+  四个都是真的，根因各不同：
+  ① **点不动**——`#hud` 整体 `pointer-events:none`（不这样会挡住画布），`#unitbtns`/`#ptags` 各自打开了，`#lens`（体检三钮）与 `#stages`（四段名）漏了，点上去事件直接穿到画布。补 `pointer-events:auto`。之前的探针一律用 `el.click()`，它绕过命中测试，所以一直是绿的；新写 `04-小工具\_probe-hit.mjs` 用 `elementFromPoint` + 真 `Input.dispatchMouseEvent` 验。
+  ② **六行计数不见**——我上一版加的 `@media (max-height:599px){#hud .stats{display:none}}`，插件那页高度不到 600，整块被藏了。删掉该规则；改成矮窗口把六行摊成两列（`display:grid;grid-template-columns:auto auto`，标记从 `<br>` 改成 `<span>`）。
+  ③ **七个第一次不见**——同一处「矮于 600 就把年表列整列藏掉」的取舍。改成「能摆几条摆几条，末尾写『还有 N 条』」。
+  ④ **图例压星盘**——图例宽度是写死的 640/404，盘的外圈半径却随窗口变（`min(50vw-26, 46vh-6)`）。改成 `max-width:min(360px, calc(50vw - var(--disc) - 30px))`，窗越高盘越大、图例自动收窄；四段名搬到标题下面，给左下腾出落脚点。
+  实测 590/610/700/900 四档：`onDisc:false`、`overlap:false`、`problems:[]`、`errors:[]`。
+
 - **修一个「只在矮窗口才炸」的报错：`Cannot access 'railFits' before initialization`（2026-11-27，用户 m06368 重启后撞上）。**
   上一条给「窗口矮于 600 收起年表列」加的 `if (H < 600) { railFits = 0; }` 写在了 `const railFits = …` 之前——TDZ 直接抛 `ReferenceError`，整个 `draw()` 断掉，星图只能显示第一帧。
   改法：条件并进表达式 `const railFits = H < 600 ? 0 : (railGap > 17.0001 ? MOM.length : …);`，注释写明「不能先 const 再赋值」。
