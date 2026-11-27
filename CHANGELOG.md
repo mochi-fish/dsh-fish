@@ -33,6 +33,13 @@
   没动 `proactive-turn:` 与原有 `proactive-silent:` 的口径：开口额度、冷却、折叠仍只认这两类。新增 4 条回归（工具报错、没等到结果、一败一成算开口、别的工具不算失败）+ 2 条纯函数用例（失败占封顶/间隔、连击降频）。全量 **3337 pass / 0 fail**（230 个测试文件），`doc-check --actual 3337` 与 `pack-check` 绿。
 
 - **说明（wiki）跟上这一版（2026-11-27）**：`lib/wiki.js` 条数不变（81 条 / 9 章），就地补四处——`bridge` 加「桥给她本人递话要报 `owner:true`，只报名字会被当成群里别人说的」「换房后经桥说话也先摆一页『上次停在这』」「走 `/say` 的群消息照那两颗开关走」，并修掉 `speakerId` 那一行的缩进；`proactive` 加「想过开口但没送出去另记一笔：不折、不占开口额度，观测台查得到送失败几次」；`set-memory` 加「你反复想起过的事」的两级退路（先只留第一条，再退到一句指针）。`test/wiki.test.mjs` 15 pass、`wiki-lint` 代词 0 / 别名 0、`test/docs.test.mjs` 2 pass；`test/proactive-speech.test.mjs` 里两处固定 `sleep(60)` 改成轮询等待（等到日志/账本出现或 3 秒超时），并行负载下不再偶发红。
+- **星图的两处加固：页面里的数据改成转义后内联，本机服务拒掉网页发来的请求（2026-11-27，外部反馈）。**
+  反馈说的是两件事，我核对后一件是真 bug、一件是边界判断。
+  ① **真 bug**：`lib/memorymap.js` 原来直接用 `JSON.stringify(view)` 拼进 `<script>`。`JSON.stringify` 不转义 `<`，所以她记下的那句里只要出现 `</script>`，脚本就被提前闭合，后面能被塞进任意 HTML/JS——而这类文本来自别人的评论、群里的发言。改法：新增并导出 `scriptJson(v)`，把 `<` `>` `&` 与 `U+2028/2029` 全部写成 `\uXXXX`，两处内联数据都走它；`test/memorymap.test.mjs` 加一条，喂 `'</script><img src=x onerror=alert(1)>'` 与含 `\u2028` 的串，断言输出没有裸 `<`、能 `JSON.parse` 回原样。
+  ② **边界判断**：星图服务 `lib/mapserve.js` 只绑 `127.0.0.1`、校验 Host 头、只服务三个只读路径、`unref()` 跟着宿主进程生死——本来就没有登录校验，因为「能连到这个端口的本机程序」本来就能直读 `~/.dsh-fish/events.jsonl`，它没有多给权限，只是多了一个网络形状的门。仍然加了两道便宜加固：带 `Origin` 或 `Sec-Fetch-Site: cross-site` 的请求一律 403（挡网页借浏览器打这个口，不挡本机 curl），响应头补 `x-frame-options: DENY` 与 `cross-origin-resource-policy: same-origin`。
+  「URL 带一次性 token」「空闲几分钟自动关服务」这两条没做——前者挡不住本机进程（它同样能读 token 文件），后者会让「开着星图去回一句再回来看」断掉；都属于产品取舍，留给你定。
+  全量 **3355 pass / 0 fail**（232 个测试文件），`doc-check --actual 3355` 与 `pack-check`（248 个文件 3.2 MB）绿。
+
 - **四段名现在是一个开关：点一次跳到那一段开头，再点同一段就回到全局（2026-11-27，用户 m06596）。**
   原来只有「往前跳」——点了就落在该段起点，想回全貌得自己把进度条拖到底。现在记住上一次点的是哪段（`stagePick`），再点同一颗就把 `cursor` 设到 `T1`（结尾＝全貌）。
   同时改了一处顺带的不对：`refreshStage()` 在 `cursor >= T1 - 1` 时视为「看的是全局」，四段都不高亮——原来到结尾会一直亮着「整合」，像是还被锁在某一段里。

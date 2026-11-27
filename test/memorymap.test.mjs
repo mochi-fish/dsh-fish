@@ -9,7 +9,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { MEMORY_MAP_HTML_B64 } from '../lib/memorymap-html.js'
-import { renderMemoryMapHtml, herNameOf } from '../lib/memorymap.js'
+import { renderMemoryMapHtml, herNameOf, scriptJson } from '../lib/memorymap.js'
 
 const template = () => Buffer.from(MEMORY_MAP_HTML_B64, 'base64').toString('utf8')
 
@@ -44,6 +44,19 @@ test('renderMemoryMapHtml：没有事件也给得出一页，数据内联、不�
   } finally {
     await fs.rm(root, { recursive: true, force: true })
   }
+})
+
+test('内联数据里出现 </script> 也不会把页面切断（2026-11-27）', () => {
+  // 这一段是她可能真的会记下来的东西：B 站评论、群里别人说的话都可能是这种字。
+  // JSON.stringify 不转义 `<`，以前这行会被当成 <script> 的收尾，后面的 onerror 直接执行。
+  const evil = '</script><img src=x onerror=alert(1)>'
+  const s = scriptJson({ text: evil, line: 'a\u2028b' })
+  assert.ok(!s.includes('</script>'), '还留着能闭合标签的 </script>')
+  assert.ok(!s.includes('<'), '还留着裸的 <')
+  assert.ok(!s.includes('\u2028'), '还留着行分隔符（老引擎里会当换行）')
+  // 转义之后必须还能被 JS 读回原样
+  assert.equal(JSON.parse(s).text, evil)
+  assert.equal(JSON.parse(s).line, 'a\u2028b')
 })
 
 // 名字（2026-11-27）：她自己的名字从事件流里取；取不到就留空，页面只写「记忆星图」。
