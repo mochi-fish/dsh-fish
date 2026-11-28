@@ -9,8 +9,11 @@ import {
   fillOwner, fillOwnerDeep, pronounFor, resetPronounCache,
 } from '../lib/pronoun.js'
 import { normalizeConfig, DEFAULTS } from '../lib/settings.js'
-import { writeConfig } from '../lib/store.js'
+import { writeConfig, appendEvent } from '../lib/store.js'
 import { writeSelfDoc, selfDocPath } from '../lib/selfdoc.js'
+import { writePeopleDoc, peopleDocPath } from '../lib/peopledoc.js'
+import { registerHerPeople } from '../lib/herpeople.js'
+import { pickNameHit } from '../lib/derive.js'
 
 async function withRoot(fn) {
   const root = await mkdtemp(join(tmpdir(), 'fish-pron-'))
@@ -34,6 +37,17 @@ test('只认 他 / 她 / TA，别的值退回「他」', () => {
   assert.equal(normalizePronoun(undefined), '他')
   assert.equal(normalizePronoun('祂'), '他', '不认识的值退回默认，不抛错')
   assert.equal(normalizePronoun(123), '他')
+})
+
+// 2026-11-23：lib/derive.js 认称呼时也要知道主人的代称，但它不依赖 store.js，没有 import 这里，
+// 另写了一份同口径的归一化。这条钉住两边一样：配置里算「她 / TA」的值，认称呼时也按「她 / TA」认。
+test('认称呼时的代称口径和 normalizePronoun 一样', () => {
+  for (const v of [undefined, null, '', '他', '她', ' 她 ', 'TA', 'ta', 'Ta', 'tA', ' ta ', '祂', 'she', 123]) {
+    const p = normalizePronoun(v)
+    const at = String(JSON.stringify(v))
+    assert.equal(pickNameHit('她以后就叫「阿辰」。', v)?.name ?? null, p === '她' ? '阿辰' : null, `她 ${at}`)
+    assert.equal(pickNameHit('TA以后就叫「阿辰」。', v)?.name ?? null, p === 'TA' ? '阿辰' : null, `TA ${at}`)
+  }
 })
 
 test('pronounOf 从配置里取，缺省是「他」', () => {
@@ -132,5 +146,49 @@ test('身份文档按代词写：默认「他」，换成「她」后不再说�
     const rest = hers.replace(/其他|其它|他人|他者|他日|他乡|他处|他方|他杀/g, '')
     assert.ok(!rest.includes('他'), '换上「她」之后还残留了「他」')
     assert.ok(hers.length > 500, '文档不是空的')
+  })
+})
+
+// 2026-11-23：认称呼时哪个「她 / TA」算指主人，跟着 owner.pronoun 走（lib/derive.js 的 nameRules）。
+// 这条钉的是从配置到身份文档那一路真的接上了（writeSelfDoc 读配置 → deriveSelf），不只是 derive 本身。
+test('身份文档里的称呼跟着代称认：默认「他」时「她以后就叫 X」不算，设成「她」才算', async () => {
+  await withRoot(async (root) => {
+    await appendEvent({ type: 'seed', text: '起点' }, { day: 1, stage: 1, source: 'system' }, root)
+    await appendEvent({ type: 'utterance', text: '以后叫你「阿辰」。' }, { day: 1, stage: 1, source: 'tool' }, root)
+    await appendEvent({ type: 'utterance', text: '她以后就叫小月。' }, { day: 1, stage: 1, source: 'tool' }, root)
+
+    await writeConfig(normalizeConfig({}), root)
+    assert.equal((await writeSelfDoc(root)).ok, true)
+    const plain = await readFile(selfDocPath(root), 'utf8')
+    assert.ok(plain.includes('你管他叫「阿辰」'), '默认「他」：那句里的「她」是别人，称呼还是阿辰')
+
+    await writeConfig(normalizeConfig({ owner: { pronoun: '她' } }), root)
+    assert.equal((await writeSelfDoc(root)).ok, true)
+    const hers = await readFile(selfDocPath(root), 'utf8')
+    assert.ok(hers.includes('你管她叫「小月」'), '设成「她」：那句说的就是她，称呼跟着改')
+  })
+})
+
+// 1.1.x 新增的「认识的人」抄本与 her_people 工具也走 deriveSelf 拿称呼，代称设成「她」时要与身份文档一致。
+test('认识的人抄本与 her_people 里的称呼也跟着 owner.pronoun 走', async () => {
+  await withRoot(async (root) => {
+    await appendEvent({ type: 'seed', text: '起点' }, { day: 1, stage: 1, source: 'system' }, root)
+    await appendEvent({ type: 'heard', text: '早安。', who: { id: 'owner', name: '' } }, { day: 1, stage: 1, source: 'system' }, root)
+    await appendEvent({ type: 'utterance', text: '以后叫你「阿辰」。' }, { day: 1, stage: 1, source: 'tool' }, root)
+    await appendEvent({ type: 'utterance', text: '她以后就叫小月。' }, { day: 2, stage: 1, source: 'tool' }, root)
+
+    let peopleTool = null
+    registerHerPeople({ tools: { register: (d) => { peopleTool = d; return d } } }, { root })
+
+    await writeConfig(normalizeConfig({}), root)
+    assert.equal((await writePeopleDoc(root)).ok, true)
+    assert.match(await readFile(peopleDocPath(root), 'utf8'), /阿辰/)
+    assert.doesNotMatch(await readFile(peopleDocPath(root), 'utf8'), /小月/)
+    assert.match((await peopleTool.execute({ list: true })).text, /阿辰/)
+
+    await writeConfig(normalizeConfig({ owner: { pronoun: '她' } }), root)
+    assert.equal((await writePeopleDoc(root)).ok, true)
+    assert.match(await readFile(peopleDocPath(root), 'utf8'), /小月/)
+    assert.match((await peopleTool.execute({ list: true })).text, /小月/)
   })
 })

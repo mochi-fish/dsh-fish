@@ -259,8 +259,8 @@ test('改称呼的第二轮审计：喊/管…叫、叫我、『』引号、转�
   assert.deepEqual(pickNameHit('以后我喊你阿辰'), { name: '阿辰', confident: true })
   assert.deepEqual(pickNameHit('以后管你叫阿辰'), { name: '阿辰', confident: true })
   assert.deepEqual(pickNameHit('以后我管你叫阿辰'), { name: '阿辰', confident: true })
-  // 「叫我」的主语是他自己，含义已经明确
-  assert.deepEqual(pickNameHit('以后叫我阿辰'), { name: '阿辰', confident: true })
+  // 「叫我」的「我」是她自己：认称呼只读她的话，这句是她想被怎么叫，不是他的称呼（见下面那条用例）
+  assert.equal(pickNameHit('以后叫我阿辰'), null)
 
   // 引号两头都是标记，不是名字的一部分（原来会得到「『阿辰』」）
   assert.deepEqual(pickNameHit('以后叫你『阿辰』'), { name: '阿辰', confident: true })
@@ -276,16 +276,35 @@ test('改称呼的第二轮审计：喊/管…叫、叫我、『』引号、转�
   assert.equal(pickName('我喊你起床'), null)
 
   // 链路：这些说法都不能把已经定好的名字顶掉
-  const traps = ['以后他让我叫你阿辰。', '他说「以后就叫你阿辰」。', '以后叫你起床。', '喊你吃饭。']
+  const traps = ['以后他让我叫你阿辰。', '他说「以后就叫你阿辰」。', '以后叫你起床。', '喊你吃饭。', '以后叫我阿辰。']
   for (const t of traps) {
     const evs = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '我就叫你哥哥吧。'), ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, t)]
     assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '哥哥', t)
   }
-  // 而新认的三种说法要能覆盖
-  for (const t of ['以后就喊你阿辰。', '以后管你叫阿辰。', '以后叫我阿辰。']) {
+  // 而新认的两种说法要能覆盖
+  for (const t of ['以后就喊你阿辰。', '以后管你叫阿辰。']) {
     const evs = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '我就叫你哥哥吧。'), ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, t)]
     assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '阿辰', t)
   }
+})
+
+// 2026-11-23：认称呼只读她自己的话（utterance / revise），「以后叫我 X」里的「我」是她。
+// 原来这句被当成「他给自己起名」，还是高置信，一句话就把定好的称呼换成她自己想被叫的名字。
+test('「以后叫我 X」是她在说她自己，不认成他的称呼', () => {
+  for (const s of ['以后叫我小鱼吧。', '以后就叫我小鱼。', '从今天起叫我小鱼', '往后叫我「小鱼」吧']) {
+    assert.equal(pickNameHit(s), null, s)
+  }
+  // 已经定下的称呼不会被换掉
+  for (const s of ['以后叫我小鱼吧。', '以后就叫我「小鱼」。']) {
+    const evs = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '以后叫你「阿辰」。'), ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, s)]
+    assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '阿辰', s)
+  }
+  // 还没有称呼时，也不会凭空把她的小名当成他的称呼
+  const fresh = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '以后叫我小鱼吧。')]
+  assert.equal(deriveSelf(fresh, { now: T0 + 2 * DAY_MS }).name, null)
+  // 对他的说法照旧认
+  assert.deepEqual(pickNameHit('以后叫你阿辰'), { name: '阿辰', confident: true })
+  assert.deepEqual(pickNameHit('你以后就叫阿辰'), { name: '阿辰', confident: true })
 })
 
 // PR #161（@BBleae）：「改称」后面紧跟「呼 / 谓」时说的是「改称呼」这件事本身，
@@ -709,85 +728,157 @@ test('数量词和祈使动词不会被当成称呼（issue #102）', () => {
 // 她说到对方时写的不一定是「他」。对方是女生、或者她不猜性别时，
 // 写出来是「以后我叫她「阿岸」」「以后叫 TA 阿岸」——原来的正则只认「他」，
 // 整句认不出来：称呼一直是空的，身份段写「你还没想好怎么称呼他」。
-test('称呼也认「她 / TA」，不只认「他」', () => {
+// 2026-11-23 起「她 / TA」跟着主人的代称（config.owner.pronoun）走：设成「她」才认「她」，
+// 设成「TA」才认「TA」（默认「他」时，她嘴里的「她 / TA」多半是别人，见后面那条）。
+test('主人的代称设成「她 / TA」时，称呼也认「她 / TA」，不只认「他」', () => {
   // 「叫 / 称呼 / 称」这一侧
-  assert.deepEqual(pickNameHit('以后我叫她「阿岸」。'), { name: '阿岸', confident: true })
-  assert.deepEqual(pickNameHit('我想称呼她阿岸。'), { name: '阿岸', confident: false })
-  assert.deepEqual(pickNameHit('称她为「阿岸」'), { name: '阿岸', confident: true })
-  assert.deepEqual(pickNameHit('我叫TA「阿岸」'), { name: '阿岸', confident: true })
-  assert.deepEqual(pickNameHit('以后叫 TA 阿岸。'), { name: '阿岸', confident: true })
-  assert.equal(pickName('以后叫ta阿岸'), '阿岸')
-  assert.equal(pickName('以后叫 TA Alice'), 'Alice')
+  assert.deepEqual(pickNameHit('以后我叫她「阿岸」。', '她'), { name: '阿岸', confident: true })
+  assert.deepEqual(pickNameHit('我想称呼她阿岸。', '她'), { name: '阿岸', confident: false })
+  assert.deepEqual(pickNameHit('称她为「阿岸」', '她'), { name: '阿岸', confident: true })
+  assert.deepEqual(pickNameHit('我叫TA「阿岸」', 'TA'), { name: '阿岸', confident: true })
+  assert.deepEqual(pickNameHit('以后叫 TA 阿岸。', 'TA'), { name: '阿岸', confident: true })
+  assert.equal(pickName('以后叫ta阿岸', 'TA'), '阿岸')
+  assert.equal(pickName('以后叫 TA Alice', 'TA'), 'Alice')
   // 「给的名字 / 自己的名字」这一侧
-  assert.equal(pickName('她给自己的名字是阿岸'), '阿岸')
-  assert.equal(pickName('她给了自己的名字：阿岸，说她认这个名字。'), '阿岸')
-  assert.equal(pickName('TA 自己的名字：阿岸'), '阿岸')
-  assert.equal(pickName('问过了，ta给的名字是阿岸'), '阿岸')
+  assert.equal(pickName('她给自己的名字是阿岸', '她'), '阿岸')
+  assert.equal(pickName('她给了自己的名字：阿岸，说她认这个名字。', '她'), '阿岸')
+  assert.equal(pickName('TA 自己的名字：阿岸', 'TA'), '阿岸')
+  assert.equal(pickName('问过了，ta给的名字是阿岸', 'TA'), '阿岸')
   // 整条链路：身份里的称呼跟着有了，后来用同样的句式改口也跟得上
   const evs = [
     ev('ev_seed', 'seed', 1, '你是个好奇心重、不太会表达的存在。', { source: 'system' }),
     ev('ev_a', 'utterance', 2, '以后我叫她「阿岸」。'),
   ]
-  assert.equal(deriveSelf(evs, { now: T0 + 2 * DAY_MS }).name, '阿岸')
+  const hers = { owner: { pronoun: '她' } }
+  assert.equal(deriveSelf(evs, { now: T0 + 2 * DAY_MS, ...hers }).name, '阿岸')
   evs.push(ev('ev_b', 'utterance', 3, '以后叫她折帆。'))
-  assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '折帆')
+  assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS, ...hers }).name, '折帆')
 })
 
+// 下面这些在「她 / TA」那两条开着的时候（主人的代称就是「她 / TA」）也照样挡。
 test('「她 / TA」这一侧，该挡的照样挡', () => {
   // 代词本身不算称呼
-  assert.equal(pickName('以后叫她她吧'), null)
-  assert.equal(pickName('以后叫TA他'), null)
-  assert.equal(pickName('以后叫她TA吧'), null)
+  assert.equal(pickName('以后叫她她吧', '她'), null)
+  assert.equal(pickName('以后叫TA他', 'TA'), null)
+  assert.equal(pickName('以后叫她TA吧', '她'), null)
   // 她自己的名字不是对对方的称呼
-  assert.equal(pickName('她给我起了名字：小鱼。'), null)
+  assert.equal(pickName('她给我起了名字：小鱼。', '她'), null)
   // 讨论名字、祈使句、数量词、「的名字」——#98 #100 #102 那几类换成「她」也不认
-  assert.equal(pickName('从她名字上切下来的一块'), null)
-  for (const s of ['叫她出去', '叫她走开', '我叫她起床', '叫 TA 闭嘴']) assert.equal(pickName(s), null)
-  assert.equal(pickName('哥哥只能叫她一个人'), null)
-  assert.equal(pickName('我叫她的名字，她应了。'), null)
+  assert.equal(pickName('从她名字上切下来的一块', '她'), null)
+  for (const s of ['叫她出去', '叫她走开', '我叫她起床']) assert.equal(pickName(s, '她'), null)
+  assert.equal(pickName('叫 TA 闭嘴', 'TA'), null)
+  assert.equal(pickName('哥哥只能叫她一个人', '她'), null)
+  assert.equal(pickName('我叫她的名字，她应了。', '她'), null)
   // 「她们 / 她俩 / ta们」说的是几个人，不是对方
-  for (const s of ['以后叫她们姐妹', '以后叫她俩姐妹花', '以后叫ta们家人']) assert.equal(pickName(s), null)
+  for (const s of ['以后叫她们姐妹', '以后叫她俩姐妹花']) assert.equal(pickName(s, '她'), null)
+  assert.equal(pickName('以后叫ta们家人', 'TA'), null)
   // TA 得是单独的一个词。ta 开头的英文单词、TA 开头的别的名字，不是代词
   for (const s of ['这个东西以后叫table吧', '以后叫tag「阿岸」', '以后叫Tata吧', '以后叫Ta-chan吧', '以后叫ta_bot吧', '以后叫TA2吧']) {
-    assert.equal(pickName(s), null, s)
+    assert.equal(pickName(s, 'TA'), null, s)
   }
   // ta 结尾的英文单词也不是
   for (const s of ['Meta给的名字叫Llama', 'data自己的名字是表一', 'beta给了自己的名字：贝塔', '这个 beta 自己的名字叫内测', 'vista给的名字是X']) {
-    assert.equal(pickName(s), null, s)
+    assert.equal(pickName(s, 'TA'), null, s)
   }
   // TA 在上一行的末尾，「自己的名字」在下一行，不是一句话
-  assert.equal(pickName('我问了ta\n自己的名字是阿岸'), null)
+  assert.equal(pickName('我问了ta\n自己的名字是阿岸', 'TA'), null)
   // 截过了头，把后半句的 TA 带了进来：不是名字（「以后叫他阿岸；他同意」原来也认不出）
-  assert.equal(pickName('以后叫ta阿岸；ta同意'), null)
+  assert.equal(pickName('以后叫ta阿岸；ta同意', 'TA'), null)
   // 「她」指的是第三个人：裸的「叫她X」是低置信，盖不掉已经定下的称呼
-  assert.deepEqual(pickNameHit('群里的人都叫她王姐'), { name: '王姐', confident: false })
+  assert.deepEqual(pickNameHit('群里的人都叫她王姐', '她'), { name: '王姐', confident: false })
   const evs = [
     ev('ev_seed', 'seed', 1, '你是个好奇心重、不太会表达的存在。', { source: 'system' }),
     ev('ev_a', 'utterance', 2, '以后叫他折帆。'),
     ev('ev_b', 'utterance', 3, '群里的人都叫她王姐'),
     ev('ev_c', 'utterance', 4, '我叫她起床'),
   ]
-  assert.equal(deriveSelf(evs, { now: T0 + 4 * DAY_MS }).name, '折帆')
+  assert.equal(deriveSelf(evs, { now: T0 + 4 * DAY_MS, owner: { pronoun: '她' } }).name, '折帆')
 })
 
 // 每条正则只看最左边那一处。「她 / TA」要是并进老的两条正则，下面这些话里
 // 前半句的「叫她…」就会盖住后半句真正的称呼（认成空，或者认成「王姐」）。
 // 所以「她 / TA」单独成条、排在最后：老的几条认得出的，结果一个字不变。
 test('原来认得出的话，夹了一句「她 / TA」结果也不变', () => {
-  assert.deepEqual(pickNameHit('我叫她起床，以后叫他阿岸'), { name: '阿岸', confident: true })
-  assert.deepEqual(pickNameHit('群里的人都叫她王姐，我以后叫他阿岸'), { name: '阿岸', confident: true })
-  assert.deepEqual(pickNameHit('妈妈叫ta回家吃饭。以后叫你「阿岸」'), { name: '阿岸', confident: true })
-  assert.equal(pickName('她给的名字是小鱼。他给的名字是阿岸'), '阿岸')
-  // 改口那条窄通道也排在「她 / TA」前面
-  assert.equal(pickName('阿岸。我叫的是这个名字。以前叫她小鱼'), '阿岸')
-  assert.equal(pickName('以后叫她小鱼。我叫的是「阿岸」'), '阿岸')
-  // 整条链路：已经定下的称呼照样能改
-  const evs = [
-    ev('ev_seed', 'seed', 1, '你是个好奇心重、不太会表达的存在。', { source: 'system' }),
-    ev('ev_a', 'utterance', 2, '以后叫他折帆。'),
-    ev('ev_b', 'utterance', 3, '视频里大家都叫她老师。以后叫他阿岸吧。'),
+  // 主人的代称是哪一个都一样：「她 / TA」那两条只在代称是它时才开，开着也排在最后
+  for (const p of [undefined, '他', '她', 'TA']) {
+    const at = String(p)
+    assert.deepEqual(pickNameHit('我叫她起床，以后叫他阿岸', p), { name: '阿岸', confident: true }, at)
+    assert.deepEqual(pickNameHit('群里的人都叫她王姐，我以后叫他阿岸', p), { name: '阿岸', confident: true }, at)
+    assert.deepEqual(pickNameHit('妈妈叫ta回家吃饭。以后叫你「阿岸」', p), { name: '阿岸', confident: true }, at)
+    assert.equal(pickName('她给的名字是小鱼。他给的名字是阿岸', p), '阿岸', at)
+    // 改口那条窄通道也排在「她 / TA」前面
+    assert.equal(pickName('阿岸。我叫的是这个名字。以前叫她小鱼', p), '阿岸', at)
+    assert.equal(pickName('以后叫她小鱼。我叫的是「阿岸」', p), '阿岸', at)
+    // 整条链路：已经定下的称呼照样能改
+    const evs = [
+      ev('ev_seed', 'seed', 1, '你是个好奇心重、不太会表达的存在。', { source: 'system' }),
+      ev('ev_a', 'utterance', 2, '以后叫他折帆。'),
+      ev('ev_b', 'utterance', 3, '视频里大家都叫她老师。以后叫他阿岸吧。'),
+    ]
+    assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS, owner: { pronoun: p } }).name, '阿岸', at)
+  }
+})
+
+// 2026-11-23：认称呼只读她自己的话，她在那里提到别的女生、宠物、不知道性别的人，用的也是「她 / TA」。
+// 主人的代称是默认的「他」时，这些句子原来全被认成主人的称呼，还是高置信，一句就把定好的盖掉。
+// 现在定名壳的主语、A 闸的指人词、「叫她 / 她给的名字」那两条都跟着主人的代称走；「你」「他」一直认。
+test('主人的代称是默认的「他」时，「她 / TA」说的是别人，不认成他的称呼', () => {
+  const others = [
+    '她以后就叫小月。',
+    '她的名字改成「小月」了。',
+    '以后就叫她小月。',
+    '以后我叫她「小月」。',
+    '大家以后都叫她王姐。',
+    '我叫她早点睡，以后我不劝了。',
+    'TA以后就叫小黑。',
+    '我叫TA「小黑」。',
+    // 名字带引号的写法：定名壳里不带主语的那几支会从「她 / TA」后面接着匹配，引号自己就能过 A 闸
+    '她以后就叫「小月」',
+    'TA以后就叫「小黑」。',
+    '她以后改叫「小月」。',
+    '她以后就改成「小月」了。',
+    '她从今天起就叫「小月」。',
   ]
-  assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '阿岸')
+  for (const p of [undefined, '他']) {
+    for (const s of others) assert.equal(pickNameHit(s, p), null, `${p} ${s}`)
+  }
+  // 已经定下的称呼不会被盖掉；还没有称呼时也不会把别人的名字挂上
+  for (const s of others) {
+    const seed = ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' })
+    const evs = [seed, ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '以后叫你「阿辰」。'), ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, s)]
+    assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '阿辰', s)
+    assert.equal(deriveSelf([seed, ev(ulidAt(T0 + DAY_MS), 'utterance', 2, s)], { now: T0 + 2 * DAY_MS }).name, null, s)
+  }
+
+  // 代称是「她」：认「她」，不认「TA」；代称是「TA」：反过来
+  assert.deepEqual(pickNameHit('她以后就叫阿辰。', '她'), { name: '阿辰', confident: true })
+  assert.deepEqual(pickNameHit('她的名字改成「阿辰」了。', '她'), { name: '阿辰', confident: true })
+  assert.equal(pickNameHit('TA以后就叫小黑。', '她'), null)
+  assert.deepEqual(pickNameHit('TA以后就叫阿辰。', 'TA'), { name: '阿辰', confident: true })
+  assert.equal(pickNameHit('她以后就叫小月。', 'TA'), null)
+  // 带引号的也一样：主语是主人的代称才认
+  assert.deepEqual(pickNameHit('她以后就叫「阿辰」。', '她'), { name: '阿辰', confident: true })
+  assert.deepEqual(pickNameHit('她以后改叫「阿辰」。', '她'), { name: '阿辰', confident: true })
+  assert.deepEqual(pickNameHit('TA 以后就叫「阿辰」。', 'TA'), { name: '阿辰', confident: true })
+  assert.equal(pickNameHit('TA以后就叫「小黑」。', '她'), null)
+  assert.equal(pickNameHit('她以后就叫「小月」。', 'TA'), null)
+
+  // 「你」「他」不管代称是什么都认：「他」是默认，换代称以前她写下的也都是「他」
+  for (const p of [undefined, '他', '她', 'TA']) {
+    const at = String(p)
+    assert.deepEqual(pickNameHit('你以后就叫阿辰', p), { name: '阿辰', confident: true }, at)
+    assert.deepEqual(pickNameHit('以后就喊你阿辰', p), { name: '阿辰', confident: true }, at)
+    assert.deepEqual(pickNameHit('那就叫：阿辰', p), { name: '阿辰', confident: true }, at)
+    assert.deepEqual(pickNameHit('他以后就叫阿辰', p), { name: '阿辰', confident: true }, at)
+  }
+  // 先用「他」定下称呼，后来主人把代称改成「她」：重新派生，称呼还在；改成「她」以后的改口也跟得上
+  const evs = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '以后叫他「阿辰」。')]
+  assert.equal(deriveSelf(evs, { now: T0 + 2 * DAY_MS, owner: { pronoun: '她' } }).name, '阿辰')
+  evs.push(ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, '她以后就叫阿川。'))
+  assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS, owner: { pronoun: '她' } }).name, '阿川')
+  assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '阿辰')
+  // 认不出的代称值和配置一样退回「他」
+  assert.equal(pickNameHit('她以后就叫小月。', '祂'), null)
 })
 
 // issue #102：她改口时说的是「岸丶。我叫的是这个名字。」——名字在句首，
