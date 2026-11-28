@@ -1111,3 +1111,59 @@ test('读盘：/config 没回整份配置，就得当场说「还没读全」，
     restore()
   }
 })
+
+test('重开失败：回执留在重置卡里（说清已排好），不是页顶一行红字', async () => {
+  const s = stateWith()
+  const restore = stubFetch({
+    '/reset': {
+      ok: false, pending: true, code: 'EPERM',
+      note: '这一刻有文件正被读写，没搬成（EPERM）。已经排好：下次启动 DSH 时会先搬。想现在生效，就完全退出 DSH 再打开。',
+      pendingInfo: { phase: 'armed', armedAt: '2026-11-28T10:00:00.000Z' },
+    },
+    '/state': s,
+  })
+  try {
+    const app = await mount({ state: s, tab: 'data', resetAsk: true })
+    await button(app.render(), '确定，重开').props.onClick()
+    const tree = app.render()
+    const c = card(tree, '重置大肥鱼')
+    assert.match(c.all, /没搬成/)
+    assert.match(c.all, /下次启动 DSH 时会先搬/)
+    assert.match(c.all, /取消这次重开/)
+    assert.equal(findAll(tree, (n) => n.type === 'pre' && hasClass(n, 'err')).length, 0, '失败回执不该再甩到页顶')
+  } finally { restore() }
+})
+
+test('排好了还没搬：卡片上说清「下次启动先搬」，并且能取消', async () => {
+  const s = stateWith()
+  const seen = []
+  const restore = stubFetch({
+    '/state': s,
+    '/reset/cancel': (path, opts) => {
+      seen.push(JSON.parse(opts.body))
+      return { ok: true, removed: true, note: '已取消，什么都没动。', pending: null }
+    },
+  })
+  try {
+    const app = await mount({ state: s, tab: 'data', resetPending: { phase: 'armed', armedAt: '2026-11-28T10:00:00.000Z' } })
+    let c = card(app.render(), '重置大肥鱼')
+    assert.match(c.all, /下次启动 DSH 时会先搬/)
+    assert.match(c.all, /取消这次重开/)
+    await button(app.render(), '取消这次重开').props.onClick()
+    c = card(app.render(), '重置大肥鱼')
+    assert.match(c.all, /已取消/)
+    assert.deepEqual(seen, [{ confirm: 'reset' }])
+  } finally { restore() }
+})
+
+test('上一次没搬成：卡片上给出原因和「再试一次」', async () => {
+  const s = stateWith()
+  const app = await mount({
+    state: s, tab: 'data',
+    resetPending: { phase: 'failed', lastRun: { ok: false, code: 'EPERM', why: '有文件正被占用' } },
+  })
+  const c = card(app.render(), '重置大肥鱼')
+  assert.match(c.all, /上次没搬成/)
+  assert.match(c.all, /有文件正被占用/)
+  assert.match(c.all, /再试一次/)
+})

@@ -53,6 +53,7 @@ import { collectBackup, restoreBackup } from '../lib/backup.js'
 import { appendEvent } from '../lib/store.js'
 import { rootMovedAway } from '../lib/move.js'
 import { invalidateLocation } from '../lib/locate.js'
+import { armPending } from '../lib/reset-pending.js'
 import { apply } from '../lib/index.js'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -541,6 +542,73 @@ test('重开一局之后：声明当场重新写上，过了心跳她照样能�
       assert.deepEqual(inst.lostLogs(), [])
     } finally {
       await inst.stop()
+    }
+  })
+})
+
+test('重开一局碰到文件正被读写：回执说清没搬成、已排好，日志留痕；放开占用再点就搬成', { skip: process.platform !== 'win32' }, async () => {
+  await withBase(async (root, base) => {
+    const oldPending = process.env.DSH_FISH_RESET_PENDING
+    process.env.DSH_FISH_RESET_PENDING = join(base, 'reset-pending.json')
+    const inst = await boot(root)
+    let held = null
+    try {
+      await inst.pause()
+      const eventsBefore = await fs.readFile(join(root, 'events.jsonl'), 'utf8')
+      held = await fs.open(join(root, 'held-open.txt'), 'w')
+      const first = await inst.postMove('/dsh-fish/reset', { confirm: 'reset' })
+      assert.equal(first.status, 200, JSON.stringify(first.body))
+      assert.equal(first.body.ok, false, '搬不动就如实说没搬成')
+      assert.equal(first.body.pending, true, '已经排好，下次启动继续')
+      assert.match(String(first.body.error || ''), /EPERM|EBUSY|EACCES/)
+      assert.equal(first.body.pendingInfo?.phase, 'armed')
+      // 意向书在数据目录之外：下次启动 DSH 时兑现
+      assert.equal((await fs.stat(join(base, 'reset-pending.json'))).isFile(), true)
+      // 失败留痕：日志里有一行（原来这里一个字都没有）
+      const logText = await fs.readFile(join(root, 'logs', 'dsh-fish.log'), 'utf8')
+      assert.match(logText, /重开没搬成/)
+      // 数据一个字节都没动
+      assert.equal(await fs.readFile(join(root, 'events.jsonl'), 'utf8'), eventsBefore, '没搬成就什么都不许动')
+
+      await held.close()
+      held = null
+      const second = await inst.postMove('/dsh-fish/reset', { confirm: 'reset' })
+      assert.equal(second.body.ok, true, JSON.stringify(second.body))
+      assert.match(String(second.body.movedTo || ''), /dsh-fish-backups/)
+      await assert.rejects(fs.stat(join(base, 'reset-pending.json')), { code: 'ENOENT' }, '搬成了意向书要收掉')
+    } finally {
+      if (held) await held.close()
+      await inst.stop()
+      if (oldPending === undefined) delete process.env.DSH_FISH_RESET_PENDING
+      else process.env.DSH_FISH_RESET_PENDING = oldPending
+    }
+  })
+})
+
+test('排着的重开能取消：/reset/cancel 删掉意向书，数据一个字节都没动', async () => {
+  await withBase(async (root, base) => {
+    const oldPending = process.env.DSH_FISH_RESET_PENDING
+    process.env.DSH_FISH_RESET_PENDING = join(base, 'reset-pending.json')
+    const inst = await boot(root)
+    try {
+      const before = await fs.readFile(join(root, 'events.jsonl'), 'utf8')
+      const armed = armPending({ root, now: new Date() })
+      assert.equal(armed.ok, true)
+      assert.equal((await fs.stat(join(base, 'reset-pending.json'))).isFile(), true)
+
+      const r = await inst.post('/dsh-fish/reset/cancel', { confirm: 'reset' })
+      assert.equal(r.status, 200, JSON.stringify(r.body))
+      assert.equal(r.body.ok, true)
+      assert.equal(r.body.removed, true)
+      await assert.rejects(fs.stat(join(base, 'reset-pending.json')), { code: 'ENOENT' })
+      assert.equal(await fs.readFile(join(root, 'events.jsonl'), 'utf8'), before, '取消不是搬：数据不许动')
+
+      const again = await inst.post('/dsh-fish/reset/cancel', { confirm: 'reset' })
+      assert.equal(again.body.removed, false, '没有排着的就如实说没有')
+    } finally {
+      await inst.stop()
+      if (oldPending === undefined) delete process.env.DSH_FISH_RESET_PENDING
+      else process.env.DSH_FISH_RESET_PENDING = oldPending
     }
   })
 })
