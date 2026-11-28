@@ -131,10 +131,12 @@ test('身份段：who 出现得比第一次说话晚，日期不跳到今天（i
   const section = peopleSection(model)
   assert.match(section, /第一次说话：11 月 1 日/)
   assert.doesNotMatch(section, /11 月 27 日/)
-  // 反过来：账本里的 who 比 firstMetAt 更早（导进来的旧事件）时，取更早的那个
+  // 反过来：账本里的 who 比 firstMetAt 还早（导入的旧事件、时钟错位）也不改口径——
+  // 日期与「到今天第 N 天」必须同一个来源，否则又是两行对不上（issue #181/#182 跟进）
   const earlier = peopleOf([ev({ id: 'e1', type: 'heard', ts: '2026-10-20T10:00:00.000Z', text: '在，今天有点累。', who: OWNER })])
   const back = peopleSection({ day: 3, firstMetAt: T1, people: earlier })
-  assert.match(back, /第一次说话：10 月 20 日/)
+  assert.match(back, /第一次说话：11 月 1 日/)
+  assert.doesNotMatch(back, /10 月 20 日/)
 })
 
 test('预算：超了就停，不硬塞', () => {
