@@ -259,8 +259,8 @@ test('改称呼的第二轮审计：喊/管…叫、叫我、『』引号、转�
   assert.deepEqual(pickNameHit('以后我喊你阿辰'), { name: '阿辰', confident: true })
   assert.deepEqual(pickNameHit('以后管你叫阿辰'), { name: '阿辰', confident: true })
   assert.deepEqual(pickNameHit('以后我管你叫阿辰'), { name: '阿辰', confident: true })
-  // 「叫我」的主语是他自己，含义已经明确
-  assert.deepEqual(pickNameHit('以后叫我阿辰'), { name: '阿辰', confident: true })
+  // 「叫我」的「我」是她自己：认称呼只读她的话，这句是她想被怎么叫，不是他的称呼（见下面那条用例）
+  assert.equal(pickNameHit('以后叫我阿辰'), null)
 
   // 引号两头都是标记，不是名字的一部分（原来会得到「『阿辰』」）
   assert.deepEqual(pickNameHit('以后叫你『阿辰』'), { name: '阿辰', confident: true })
@@ -276,16 +276,35 @@ test('改称呼的第二轮审计：喊/管…叫、叫我、『』引号、转�
   assert.equal(pickName('我喊你起床'), null)
 
   // 链路：这些说法都不能把已经定好的名字顶掉
-  const traps = ['以后他让我叫你阿辰。', '他说「以后就叫你阿辰」。', '以后叫你起床。', '喊你吃饭。']
+  const traps = ['以后他让我叫你阿辰。', '他说「以后就叫你阿辰」。', '以后叫你起床。', '喊你吃饭。', '以后叫我阿辰。']
   for (const t of traps) {
     const evs = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '我就叫你哥哥吧。'), ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, t)]
     assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '哥哥', t)
   }
-  // 而新认的三种说法要能覆盖
-  for (const t of ['以后就喊你阿辰。', '以后管你叫阿辰。', '以后叫我阿辰。']) {
+  // 而新认的两种说法要能覆盖
+  for (const t of ['以后就喊你阿辰。', '以后管你叫阿辰。']) {
     const evs = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '我就叫你哥哥吧。'), ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, t)]
     assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '阿辰', t)
   }
+})
+
+// 2026-11-23：认称呼只读她自己的话（utterance / revise），「以后叫我 X」里的「我」是她。
+// 原来这句被当成「他给自己起名」，还是高置信，一句话就把定好的称呼换成她自己想被叫的名字。
+test('「以后叫我 X」是她在说她自己，不认成他的称呼', () => {
+  for (const s of ['以后叫我小鱼吧。', '以后就叫我小鱼。', '从今天起叫我小鱼', '往后叫我「小鱼」吧']) {
+    assert.equal(pickNameHit(s), null, s)
+  }
+  // 已经定下的称呼不会被换掉
+  for (const s of ['以后叫我小鱼吧。', '以后就叫我「小鱼」。']) {
+    const evs = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '以后叫你「阿辰」。'), ev(ulidAt(T0 + 2 * DAY_MS), 'utterance', 3, s)]
+    assert.equal(deriveSelf(evs, { now: T0 + 3 * DAY_MS }).name, '阿辰', s)
+  }
+  // 还没有称呼时，也不会凭空把她的小名当成他的称呼
+  const fresh = [ev(ulidAt(T0), 'seed', 1, '种', { source: 'system' }), ev(ulidAt(T0 + DAY_MS), 'utterance', 2, '以后叫我小鱼吧。')]
+  assert.equal(deriveSelf(fresh, { now: T0 + 2 * DAY_MS }).name, null)
+  // 对他的说法照旧认
+  assert.deepEqual(pickNameHit('以后叫你阿辰'), { name: '阿辰', confident: true })
+  assert.deepEqual(pickNameHit('你以后就叫阿辰'), { name: '阿辰', confident: true })
 })
 
 // PR #161（@BBleae）：「改称」后面紧跟「呼 / 谓」时说的是「改称呼」这件事本身，
