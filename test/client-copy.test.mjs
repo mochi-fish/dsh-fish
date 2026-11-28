@@ -103,7 +103,14 @@ async function mount(seed = {}) {
     assert.ok(e, '要能认出自动保存那个 effect')
     e.fn()
   }
-  return { render, runAutosave }
+  const runLoad = async () => {
+    // 读盘那一个 effect：useEffect(() => { load() }, [load])，load 是 useCallback 过的 async function
+    const e = react.effects().find((x) => Array.isArray(x.deps) && x.deps.length === 1
+      && typeof x.deps[0] === 'function' && x.deps[0].constructor.name === 'AsyncFunction')
+    assert.ok(e, '要能认得读盘那一个 effect')
+    await e.deps[0]()
+  }
+  return { render, runAutosave, runLoad }
 }
 
 /** 假的同源接口：没登记的路径一律 404。 */
@@ -114,6 +121,10 @@ function stubFetch(routes) {
     const key = Object.keys(routes).find((k) => path === k || path.startsWith(`${k}?`))
     if (!key) return { ok: false, status: 404, json: async () => ({ error: 'not found' }) }
     const body = typeof routes[key] === 'function' ? routes[key](path, opts) : routes[key]
+    // 想造一个失败的接口：route 回 { __status: 500 }
+    if (body && typeof body === 'object' && body.__status) {
+      return { ok: body.__status < 400, status: body.__status, json: async () => ({ error: 'boom' }) }
+    }
     return { ok: true, status: 200, json: async () => body }
   }
   return () => { globalThis.fetch = prev }
@@ -1032,4 +1043,71 @@ test('页头也按天数直接写，不再出现「x / y 天」', async () => {
   const sub = findAll(render(), (n) => hasClass(n, 'sub')).map(text).join('')
   assert.match(sub, /已成长 31 天/, `页头要给总天数：${sub}`)
   assert.doesNotMatch(sub, /31\s*\/\s*30/, `页头别再写 31 / 30：${sub}`)
+})
+
+// ---------------------------------------------------------------------------
+// 设置页读盘（2026-11-28，外部反馈：七项全显示默认值）
+// ---------------------------------------------------------------------------
+
+test('读盘：/state 挂了，设置页也要从 /config 把值灌进来，不许停在默认值', async () => {
+  // 用户那边看到 1 / 1 / 20:00-23:00，全是 useState 的初值——因为 /state 一失败，
+  // 后面 /config 那一段整段被跳过。设置页的值本来就该由 /config 决定。
+  const s = stateWith()
+  const restore = stubFetch({
+    '/state': { __status: 500 },
+    '/beliefs': {},
+    '/diary': {},
+    '/browse': {},
+    '/config': {
+      config: {
+        wakesPerDay: 8,
+        daily: { events: 8, questions: 1, quietMin: 10 },
+        window: ['18:00', '09:00'],
+        absenceAfterDays: 2,
+      },
+      file: 'config.json',
+    },
+  })
+  try {
+    const app = await mount({ state: s, tab: 'grow' })
+    app.render()
+    await app.runLoad()
+    const tree = app.render()
+    const val = (label) => {
+      const box = findAll(field(tree, label), (n) => n.type === 'input')[0]
+      assert.ok(box, `「${label}」要有一个输入框`)
+      return String(box.props.value ?? '')
+    }
+    assert.equal(val('每天定时醒几次'), '8', '盘上是 8 次，页面不能显示默认的 1')
+    assert.equal(val('每天几张事件卡'), '8', '盘上是 8 张，页面不能显示默认的 1')
+    const win = findAll(field(tree, '她醒着的时间段'), (n) => n.type === 'input').map((n) => String(n.props.value ?? ''))
+    assert.deepEqual(win, ['18:00', '09:00'], `盘上是 18:00-09:00，不许停在默认的 20:00-23:00`)
+  } finally {
+    restore()
+  }
+})
+
+test('读盘：/config 没回整份配置，就得当场说「还没读全」，不能假装读全了', async () => {
+  // 空体 / 坏 JSON 时 jget 回 {}，以前照样算「读全了」——下一次自动保存就会拿初值盖盘。
+  const s = stateWith()
+  const posts = []
+  const restore = stubFetch({
+    '/state': s,
+    '/beliefs': {},
+    '/diary': {},
+    '/browse': {},
+    '/config': (path, opts) => { if (opts.method === 'POST') posts.push(opts.body); return {} },
+  })
+  try {
+    const app = await mount({ state: s, tab: 'grow' })
+    app.render()
+    await app.runLoad()
+    const tree = app.render()
+    assert.match(text(tree), /还没从盘上读全/, '读不到配置要当场说出来，不能静默显示默认值')
+    // 这时候动一下设置，也不许写盘
+    app.runAutosave()
+    assert.equal(posts.length, 0, '没读全就不写盘')
+  } finally {
+    restore()
+  }
 })
