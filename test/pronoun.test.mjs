@@ -11,6 +11,7 @@ import {
 import { normalizeConfig, DEFAULTS } from '../lib/settings.js'
 import { writeConfig, appendEvent } from '../lib/store.js'
 import { writeSelfDoc, selfDocPath } from '../lib/selfdoc.js'
+import { pickNameHit } from '../lib/derive.js'
 
 async function withRoot(fn) {
   const root = await mkdtemp(join(tmpdir(), 'fish-pron-'))
@@ -34,6 +35,17 @@ test('只认 他 / 她 / TA，别的值退回「他」', () => {
   assert.equal(normalizePronoun(undefined), '他')
   assert.equal(normalizePronoun('祂'), '他', '不认识的值退回默认，不抛错')
   assert.equal(normalizePronoun(123), '他')
+})
+
+// 2026-11-23：lib/derive.js 认称呼时也要知道主人的代称，但它不依赖 store.js，没有 import 这里，
+// 另写了一份同口径的归一化。这条钉住两边一样：配置里算「她 / TA」的值，认称呼时也按「她 / TA」认。
+test('认称呼时的代称口径和 normalizePronoun 一样', () => {
+  for (const v of [undefined, null, '', '他', '她', ' 她 ', 'TA', 'ta', 'Ta', 'tA', ' ta ', '祂', 'she', 123]) {
+    const p = normalizePronoun(v)
+    const at = String(JSON.stringify(v))
+    assert.equal(pickNameHit('她以后就叫「阿辰」。', v)?.name ?? null, p === '她' ? '阿辰' : null, `她 ${at}`)
+    assert.equal(pickNameHit('TA以后就叫「阿辰」。', v)?.name ?? null, p === 'TA' ? '阿辰' : null, `TA ${at}`)
+  }
 })
 
 test('pronounOf 从配置里取，缺省是「他」', () => {
