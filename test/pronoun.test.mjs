@@ -11,6 +11,8 @@ import {
 import { normalizeConfig, DEFAULTS } from '../lib/settings.js'
 import { writeConfig, appendEvent } from '../lib/store.js'
 import { writeSelfDoc, selfDocPath } from '../lib/selfdoc.js'
+import { writePeopleDoc, peopleDocPath } from '../lib/peopledoc.js'
+import { registerHerPeople } from '../lib/herpeople.js'
 import { pickNameHit } from '../lib/derive.js'
 
 async function withRoot(fn) {
@@ -164,5 +166,29 @@ test('身份文档里的称呼跟着代称认：默认「他」时「她以后�
     assert.equal((await writeSelfDoc(root)).ok, true)
     const hers = await readFile(selfDocPath(root), 'utf8')
     assert.ok(hers.includes('你管她叫「小月」'), '设成「她」：那句说的就是她，称呼跟着改')
+  })
+})
+
+// 1.1.x 新增的「认识的人」抄本与 her_people 工具也走 deriveSelf 拿称呼，代称设成「她」时要与身份文档一致。
+test('认识的人抄本与 her_people 里的称呼也跟着 owner.pronoun 走', async () => {
+  await withRoot(async (root) => {
+    await appendEvent({ type: 'seed', text: '起点' }, { day: 1, stage: 1, source: 'system' }, root)
+    await appendEvent({ type: 'heard', text: '早安。', who: { id: 'owner', name: '' } }, { day: 1, stage: 1, source: 'system' }, root)
+    await appendEvent({ type: 'utterance', text: '以后叫你「阿辰」。' }, { day: 1, stage: 1, source: 'tool' }, root)
+    await appendEvent({ type: 'utterance', text: '她以后就叫小月。' }, { day: 2, stage: 1, source: 'tool' }, root)
+
+    let peopleTool = null
+    registerHerPeople({ tools: { register: (d) => { peopleTool = d; return d } } }, { root })
+
+    await writeConfig(normalizeConfig({}), root)
+    assert.equal((await writePeopleDoc(root)).ok, true)
+    assert.match(await readFile(peopleDocPath(root), 'utf8'), /阿辰/)
+    assert.doesNotMatch(await readFile(peopleDocPath(root), 'utf8'), /小月/)
+    assert.match((await peopleTool.execute({ list: true })).text, /阿辰/)
+
+    await writeConfig(normalizeConfig({ owner: { pronoun: '她' } }), root)
+    assert.equal((await writePeopleDoc(root)).ok, true)
+    assert.match(await readFile(peopleDocPath(root), 'utf8'), /小月/)
+    assert.match((await peopleTool.execute({ list: true })).text, /小月/)
   })
 })
