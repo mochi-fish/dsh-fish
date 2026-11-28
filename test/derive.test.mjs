@@ -832,6 +832,12 @@ test('主人的代称是默认的「他」时，「她 / TA」说的是别人，
     '我叫她早点睡，以后我不劝了。',
     'TA以后就叫小黑。',
     '我叫TA「小黑」。',
+    // 名字带引号的写法：定名壳里不带主语的那几支会从「她 / TA」后面接着匹配，引号自己就能过 A 闸
+    '她以后就叫「小月」',
+    'TA以后就叫「小黑」。',
+    '她以后改叫「小月」。',
+    '她以后就改成「小月」了。',
+    '她从今天起就叫「小月」。',
   ]
   for (const p of [undefined, '他']) {
     for (const s of others) assert.equal(pickNameHit(s, p), null, `${p} ${s}`)
@@ -850,6 +856,12 @@ test('主人的代称是默认的「他」时，「她 / TA」说的是别人，
   assert.equal(pickNameHit('TA以后就叫小黑。', '她'), null)
   assert.deepEqual(pickNameHit('TA以后就叫阿辰。', 'TA'), { name: '阿辰', confident: true })
   assert.equal(pickNameHit('她以后就叫小月。', 'TA'), null)
+  // 带引号的也一样：主语是主人的代称才认
+  assert.deepEqual(pickNameHit('她以后就叫「阿辰」。', '她'), { name: '阿辰', confident: true })
+  assert.deepEqual(pickNameHit('她以后改叫「阿辰」。', '她'), { name: '阿辰', confident: true })
+  assert.deepEqual(pickNameHit('TA 以后就叫「阿辰」。', 'TA'), { name: '阿辰', confident: true })
+  assert.equal(pickNameHit('TA以后就叫「小黑」。', '她'), null)
+  assert.equal(pickNameHit('她以后就叫「小月」。', 'TA'), null)
 
   // 「你」「他」不管代称是什么都认：「他」是默认，换代称以前她写下的也都是「他」
   for (const p of [undefined, '他', '她', 'TA']) {
