@@ -1,6 +1,6 @@
 ## 1.1.3 — 未发布
 
-这一版收五件事：两件在同一条路上——**他说的那句话，从桥进来之后身份丢了**；第三件是**配额满了的时候，日志里看不出卡在哪一步**；第四件是**她在群房里写下的那句判断，场次和对象都丢了**；第五件是**她认识的人永远只有主人一个**。另加一件：**星图放大到很密的时候会卡**。
+这一版收五件事：两件在同一条路上——**他说的那句话，从桥进来之后身份丢了**；第三件是**配额满了的时候，日志里看不出卡在哪一步**；第四件是**她在群房里写下的那句判断，场次和对象都丢了**；第五件是**她认识的人永远只有主人一个**。另加一件：**星图放大到很密的时候会卡**。后面还跟着两条：**交接页认得比她开口晚一拍**，以及**她自己醒来说的那句话没进记忆**。
 
 - **「重开一局」点了没反应：按钮变回原样、数据没动、日志里一行都没有（2026-11-28，外部报告）。** 外部机器（Windows，1.1.2 + DSH 0.2.2-rc.5）在设置 → 数据 →「重置大肥鱼」→「确定，重开」之后，按钮变回 RESTORE，没有新的 `dsh-fish-backups/reset-*`，`logs/dsh-fish.log` 也没有记录；28 分钟后同一进程再点却成功了。`resetAll()` 本身没坏（失败时如实返回、绝不部分搬走），坏的是三件事：
   ① **在运行中做只有启动瞬间才安全的事。** `POST /dsh-fish/reset` 同步 rename 整个数据目录，而 `awayFromBeat()` 只串心跳；每轮的 `logLine()`、`session-pressure`、每 15 秒 tmp+rename 的 `instance.json`、自动备份都还在写。Windows 上父目录 rename 只要子树上有一个打开句柄就 `EPERM`（报告里的探针：`cwd=root\home`、`cwd=root`、`fs.watch`、普通读句柄、目录句柄全部触发；只有 `cwd` 在 root 的祖先上才过得去）。
@@ -55,7 +55,11 @@
   配套的必要硬化：开关会留着了，就必须有**过期**——新增 `lib/handoff.js` 的 `carryExpired(saved, now)`（满 `CARRY_TURNS = 8` 轮、或换房超过 `CARRY_DAYS = 3` 天就算过期），`armHandoffFor` 与 `handoffTextSync` 都先过它，否则很远之后的一次组装会把旧房间的话翻出来当「上次停在这」。`CARRY_DAYS` / `CARRY_TURNS` 的常量定义搬到 `handoff.js`（`home.js` 只是再导出，避免两个模块成环）；`rotatedAt` 缺失**不算**过期——崩溃兜底补建的新会话没有轮换时间，那一路还要靠交接页。
   +1 条测试（过期三条 + 缺 `rotatedAt` 照念），两条断言反过来（没读到的那一轮结束之后开关仍是开的），`/say` 一路同步。全量 **3393 条全绿**（234 个测试文件），`doc-check` 与 `pack-check` 都过。
 - **0.9.x 记进来的系统文本会被当成「他说过的一句」（2026-11-28，issue #181 后续）。** 那台机器最早的几条 `heard` 其实是宿主塞进上下文的 `Browser time zone for this request…`、`[model changed: …]`，而 `recentHeard` 只按时间取最近两句、不看内容——身份段那句「你记着{T}说过的一句」和说话前的引句都可能引到系统提示。事件流只追加、删不掉，所以只在**引用**时跳过：`lib/schema.js` 新增 `looksLikeSystemHeard()`（固定前缀判据，正常说话几乎不会命中），`lib/derive.js` 的 `recentHeard` 跳过这类文本；记录本身还在，`her_recall` 照旧翻得到。+2 条测试。
-- 全量 `node --test` **3395 条全绿**（234 个测试文件），`doc-check` 与 `pack-check` 都过。
+- **她自己醒来说的那一句话，会话里有、记忆里没有（2026-11-28，外部报告 §六，用户 m01256 拍板）。** 报告里那句「没等到你喊，我自己醒了。昨晚那些话我摊开写了一页，书还在第 11 页。」在会话正文里看得见，但 `events.jsonl` 里没有对应的 `utterance`，`talk-recent.json` 也没有——**不是被删掉，是从来没写进去**。
+  三条说话的路里，只有两条会写事件流：他打字走 `lib/turns.js` 的 `settle()`（`:1166` 那一段），桥走 `/say`；而定时叫醒走的是 `lib/scheduler.js` 的 `followWake()` 结账，那里只记 `proactive-turn:` / `proactive-silent:` / `proactive-fail:` 三种记账，**没有人把 `out.said` 交给 `appendEvent`**。当初不加不是遗漏得莫名其妙：`utterance` 会被 `lib/derive.js` 收成她的判断，一天醒好几次、每次都算她说了一句，判断池很快被独白灌成噪音；`/say` 那一路（`lib/proactive.js` 的 `writeSay`）正是因此要她自带 refs、并有每日上限，属于「认领式开口」。叫醒这一轮没有人跟她说话，走不到那条认领路径，于是干脆一句都不留。
+  改法是最小的一步：`lib/scheduler.js` 的 `if (!quiet)` 分支里，把 `out.said` 按段写进事件流，带 `flags:['uncommitted']`、`who:{id:'owner',name:''}`、`sessionId`，`source` 仍是 `timer`（`lib/schema.js:485` 只允许非 `tool` 来源自带 flags）。带 `uncommitted` 的含义与 `settle()` 完全一致：**只留证，不当判断**——不进 beliefs、不进新话率（`lib/derive.js:1032`）、不长到人物层（`lib/people.js:299`）、不进旁听计数（`lib/away.js:84`），`her_recall` 翻得到并标成「聊天里随口说的」。三种不算话由现有的 `quiet` 判据挡住：断流（`looksLikeStreamFailure`）、没什么要说的（`looksLikeNothingSaid`）、只调了工具没说（`toolSpoke !== true`）；配了 `proactive.sendTools` 的部署里话是从工具发出去的、正文里没有原文，这时账照记、事件流里不编一条。
+  超长按 2000 字切条（`splitForEvents()`，按空行拼段、单段硬切），因为 `validateEvent` 见到超长会抛 `TOO_LONG`；没有去 import `lib/turns.js` 的 `chunkText`（它未导出，也不值得为切字符串把整条依赖拉过来）。`talk-recent.json` **这一版不动**——她的独白先只进记忆，不进回顾配对。
+  +4 条测试：说出口的话进事件流且 flags / source / sessionId / who 都对；醒着没开口一个字都不进；话从工具出去时不编原文；超长切成多条且每条不超 2000 字。全量 **3399 条全绿**（234 个测试文件），`doc-check` 与 `pack-check` 都过。
 
 ## 1.1.2 — 2026-11-27
 

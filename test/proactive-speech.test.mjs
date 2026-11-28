@@ -79,6 +79,8 @@ async function setup(proactive = {}, { history = true } = {}) {
   return root
 }
 const metas = async (root) => (await readEvents(root)).events.filter((e) => e.type === 'meta').map((e) => String(e.text).split(':')[0])
+/** 她自己醒的那一轮真说的话：只挑 timer 写进去的 utterance，工具写的那些（her_say）不算。 */
+const utts = async (root) => (await readEvents(root)).events.filter((e) => e.type === 'utterance' && e.source === 'timer')
 
 const REASON = '想跟他说一句。'.repeat(40)
 /** 一轮：ping、调一次工具、工具结果、turn/end。text 非空就再写一句正文。 */
@@ -104,7 +106,7 @@ async function run(proactive, turn) {
   await until(() => logs.length > 0)
   // 日志先落、记账后写：留一点余量，别在账本还没落盘时就读（并行时机器一忙就偶发）
   await sleep(200)
-  const out = { meta: await metas(root), folded: h.appended.length, section: h.followups[0].section, logs }
+  const out = { meta: await metas(root), folded: h.appended.length, section: h.followups[0].section, logs, utts: await utts(root) }
   s.dispose()
   clearWakeSection()
   return out
@@ -243,6 +245,42 @@ test('没配 sendTools：正文还是算开口', async () => {
   const r = await run({}, { tool: null, text: '我想了想，还是跟你说一声。' })
   assert.ok(r.meta.includes('proactive-turn'))
   assert.equal(r.folded, 0)
+})
+
+test('自己醒的这一轮说出口的话，也要进事件流（2026-11-28 用户 m01256）', async () => {
+  // 以前这条路只记 proactive-turn 一笔账：话在会话里看得见，`her_recall` 却翻不到，
+  // 记忆与「她真说过什么」慢慢分叉。现在与侧栏打字那条路同口径：写 utterance，
+  // 打 uncommitted（没认领，只留证、不当判断）。
+  const r = await run({}, { tool: null, text: '昨晚那本书我看到第十一页了，剩下的想留着明天看。' })
+  assert.ok(r.meta.includes('proactive-turn'))
+  assert.equal(r.utts.length, 1, '这一轮的话要落成一条 utterance')
+  assert.equal(r.utts[0].text, '昨晚那本书我看到第十一页了，剩下的想留着明天看。')
+  assert.deepEqual(r.utts[0].flags, ['uncommitted'], '没认领就只留证，不当成她的判断')
+  assert.equal(r.utts[0].source, 'timer')
+  assert.equal(r.utts[0].sessionId, 's-main', '要记下这句话是哪条会话说的')
+  assert.deepEqual(r.utts[0].who, { id: 'owner', name: '' })
+})
+
+test('醒着没开口：一个字都不进事件流', async () => {
+  const r = await run({}, { tool: null })
+  assert.ok(r.meta.includes('proactive-silent'))
+  assert.equal(r.utts.length, 0, '没说话就不该多一条 utterance')
+})
+
+test('配了 sendTools、话从工具出去的：账照记，不编原文', async () => {
+  const r = await run({ sendTools: ['send_chat'] }, { tool: 'send_chat' })
+  assert.ok(r.meta.includes('proactive-turn'))
+  assert.equal(r.utts.length, 0, '正文没留，就不该凭空造一条 utterance')
+  assert.ok(r.logs.some((l) => l.includes('话是从工具发出去的')), '日志要把这件事说清楚')
+})
+
+test('记进事件流时超长会切成几条，单条不超 2000 字（校验器上限）', async () => {
+  const long = Array.from({ length: 6 }, (_, i) => `${i}`.padEnd(900, '字')).join('\n\n')
+  const r = await run({}, { tool: null, text: long })
+  assert.ok(r.meta.includes('proactive-turn'))
+  assert.ok(r.utts.length > 1, '一条装不下就要切开，不能整条被校验器拒收')
+  for (const u of r.utts) assert.ok(u.text.length <= 2000, `单条超过 2000 字会被拒：${u.text.length}`)
+  assert.equal(r.utts.map((u) => u.text).join('').replace(/\n/g, ''), long.replace(/\n/g, ''))
 })
 
 test('代码模式里的发送：嵌套派发按真正的工具名认', async () => {
