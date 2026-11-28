@@ -35,6 +35,16 @@ test('两个小时前他还在说话，这次不算睡醒', () => {
   assert.equal(firstWakeOfDay(events, now), false)
 })
 
+test('他一个半小时前来过、只留下 seen:，这次不算睡醒；四小时以前来的照旧算', () => {
+  // 走 /say 的桥、桥房里，他说话之后事件流常常只有 `meta seen:`，没有她的 utterance。
+  const now = at(2026, 11, 14, 9)
+  const seen = (h, mi = 0) => ({ type: 'meta', text: `seen:${iso(2026, 11, 14, h, mi)}`, ts: iso(2026, 11, 14, h, mi) })
+  assert.equal(firstWakeOfDay([wake(2026, 11, 13, 23), seen(7, 30)], now), false)
+  assert.equal(firstWakeOfDay([wake(2026, 11, 13, 23), seen(2, 10)], now), true)
+  // 文本里的时刻读不出来的 seen: 不算（和 isContactEvent 同一口径）
+  assert.equal(firstWakeOfDay([wake(2026, 11, 13, 23), { type: 'meta', text: 'seen:x', ts: iso(2026, 11, 14, 7, 30) }], now), true)
+})
+
 test('sleep: 是夜间 think 的槽位，不是「睡过一觉」', () => {
   const now = at(2026, 11, 14, 9)
   const events = [

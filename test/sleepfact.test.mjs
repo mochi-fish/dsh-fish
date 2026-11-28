@@ -51,7 +51,31 @@ test('sleep: 只是记账，不算活动、也不算醒过', () => {
 
 test('没有活动基线：不猜', () => {
   assert.equal(sleepFacts([], at(2026, 11, 14, 9)), null)
-  assert.equal(sleepFacts([{ type: 'meta', text: 'seen:2026-11-14', ts: iso(2026, 11, 14, 8) }], at(2026, 11, 14, 9)), null)
+  // 记账行撑不起基线。这里原来拿 `seen:` 当记账的例子，但 seen: 是他来过的证据（见下一条），换成真正的记账行。
+  assert.equal(sleepFacts([{ type: 'meta', text: 'quiet:2026-11-14', ts: iso(2026, 11, 14, 8) }], at(2026, 11, 14, 9)), null)
+})
+
+test('他半夜来过、事件流里只留下 seen:：起点从他来的那一刻算，不说一整夜没有动静', () => {
+  // 走 /say 的桥、桥房里，他说了话、她也答了，事件流里常常只有这一行 `meta seen:`
+  // （/say 不替她写 utterance，heard 每几轮才记一句）。
+  const now = at(2026, 11, 14, 9)
+  const events = [
+    say(iso(2026, 11, 13, 22, 40), '睡前一句', 'ev_last'),
+    { type: 'meta', text: `seen:${iso(2026, 11, 14, 2, 10)}`, ts: iso(2026, 11, 14, 2, 10) },
+  ]
+  const f = sleepFacts(events, now)
+  assert.ok(f)
+  assert.equal(f.start, at(2026, 11, 14, 2, 10))
+  assert.equal(Math.round(f.hours), 7)
+  assert.match(f.text, /从 02:10 到 09:00/)
+  assert.doesNotMatch(f.text, /22:40/)
+  // 她在那之后没写下什么：睡前最后写下的仍是那一句
+  assert.equal(f.lastWord.id, 'ev_last')
+
+  // 只有 seen: 也算有基线
+  const only = sleepFacts([{ type: 'meta', text: `seen:${iso(2026, 11, 14, 3)}`, ts: iso(2026, 11, 14, 3) }], now)
+  assert.ok(only)
+  assert.equal(only.start, at(2026, 11, 14, 3))
 })
 
 test('隔了两天多：说「两天多」，不把小时数报得很大', () => {
