@@ -1,4 +1,4 @@
-## 1.1.3 — 未发布
+## 1.1.3 — 2026-11-28
 
 这一版收五件事：两件在同一条路上——**他说的那句话，从桥进来之后身份丢了**；第三件是**配额满了的时候，日志里看不出卡在哪一步**；第四件是**她在群房里写下的那句判断，场次和对象都丢了**；第五件是**她认识的人永远只有主人一个**。另加一件：**星图放大到很密的时候会卡**。后面还跟着两条：**交接页认得比她开口晚一拍**，以及**她自己醒来说的那句话没进记忆**。
 
@@ -60,6 +60,8 @@
   改法是最小的一步：`lib/scheduler.js` 的 `if (!quiet)` 分支里，把 `out.said` 按段写进事件流，带 `flags:['uncommitted']`、`who:{id:'owner',name:''}`、`sessionId`，`source` 仍是 `timer`（`lib/schema.js:485` 只允许非 `tool` 来源自带 flags）。带 `uncommitted` 的含义与 `settle()` 完全一致：**只留证，不当判断**——不进 beliefs、不进新话率（`lib/derive.js:1032`）、不长到人物层（`lib/people.js:299`）、不进旁听计数（`lib/away.js:84`），`her_recall` 翻得到并标成「聊天里随口说的」。三种不算话由现有的 `quiet` 判据挡住：断流（`looksLikeStreamFailure`）、没什么要说的（`looksLikeNothingSaid`）、只调了工具没说（`toolSpoke !== true`）；配了 `proactive.sendTools` 的部署里话是从工具发出去的、正文里没有原文，这时账照记、事件流里不编一条。
   超长按 2000 字切条（`splitForEvents()`，按空行拼段、单段硬切），因为 `validateEvent` 见到超长会抛 `TOO_LONG`；没有去 import `lib/turns.js` 的 `chunkText`（它未导出，也不值得为切字符串把整条依赖拉过来）。`talk-recent.json` **这一版不动**——她的独白先只进记忆，不进回顾配对。
   +4 条测试：说出口的话进事件流且 flags / source / sessionId / who 都对；醒着没开口一个字都不进；话从工具出去时不编原文；超长切成多条且每条不超 2000 字。全量 **3399 条全绿**（234 个测试文件），`doc-check` 与 `pack-check` 都过。
+
+测试从 1.1.2 的 3354 条加到 **3399 条（+45）**；`node --test` 全绿（3399 条 / 234 个测试文件），`doc-check --actual 3399` 绿，`pack-check` 253 个文件 3.3 MB。
 
 ## 1.1.2 — 2026-11-27
 

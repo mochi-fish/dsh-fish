@@ -39,7 +39,7 @@
 - 🌊 **[Paired Single-Session Companion Architecture: `mochi-fish/fish-sessionless`](https://github.com/mochi-fish/fish-sessionless)**
 
 > [!NOTE]
-> **Current Version: `1.1.2`**. This release adds a **memory star map**: the old "check-up" button becomes a full page with a browsable map, search, playback, the check-up numbers, and PNG export. It also settles the ledgers of anyone who speaks through a bridge: after a room rotation, `/say` now shows the handoff page; group members' lines no longer count as "{T} said it"; and "she tried to send but it did not go out" is recorded separately from "she chose not to speak". Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
+> **Current Version: `1.1.3`**. This release fixes the things that "looked like nothing happened": **"reset and start over"** now writes an intent file and really moves the data on the next boot, logging the failure and keeping the receipt inside that card; the **identity section is no longer re-sent in full every turn** (the cue section moved back to context, and the wake note is split from this wake's situation); the **memory star map** batches its edges and drops to idle frame rates instead of eating a whole core; and she can now know **more people than just the owner** (`her_person` for add / alias / merge), while bridged speakers, the first-met date, and judgments written in group rooms land in the right places. Canonical documentation is maintained in [Simplified Chinese (`README.md`)](./README.md), with per-version release notes in `RELEASE-NOTES-*.md` and [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 
