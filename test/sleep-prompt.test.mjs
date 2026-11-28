@@ -20,7 +20,8 @@ import { fileURLToPath } from 'node:url'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import { sleepPromptDue, monthlyDue, wakeNow } from '../lib/scheduler.js'
+import { sleepPromptDue, monthlyDue, wakeNow, startScheduler } from '../lib/scheduler.js'
+import { CATALOG } from '../lib/events.js'
 import { growthDay } from '../lib/derive.js'
 import { validateEvent } from '../lib/schema.js'
 import { appendEvent, readEvents, writeConfig } from '../lib/store.js'
@@ -260,3 +261,79 @@ test('真机叫醒：这个月已经问过两次，这次多一句收束（不�
   }
 })
 
+test('错过整倍数成长日（如当天 quiet 或未开机）时，本周期首醒补递一次，之后不再重复', () => {
+  const history = [
+    { type: 'meta', text: 'sleep:2026-11-10', day: 14 },
+    { type: 'meta', text: 'quiet:2026-11-17 无候选模板，今天不打扰', day: 21 },
+  ]
+  assert.equal(sleepPromptDue({ every: 7, day: 22, dk: '2026-11-18', events: history }), true)
+  const afterCatchup = [...history, { type: 'meta', text: 'sleep:2026-11-18', day: 22 }]
+  assert.equal(sleepPromptDue({ every: 7, day: 22, dk: '2026-11-18', events: afterCatchup }), false)
+  assert.equal(sleepPromptDue({ every: 7, day: 25, dk: '2026-11-21', events: afterCatchup }), false)
+  assert.equal(sleepPromptDue({ every: 7, day: 28, dk: '2026-11-24', events: afterCatchup }), true)
+})
+
+test('成长日到 7 的倍数而模板卡池已空（plan 回 quiet）时，tick 仍唤醒并递出「想一想」', async (t) => {
+  const DAY_MS = 86_400_000
+  const root = await mkdtemp(join(tmpdir(), 'fish-sleep-quiet-'))
+  const oldHomes = process.env.DSH_FISH_HOMES
+  process.env.DSH_FISH_HOMES = join(root, 'homes.json')
+  const seedAt = new Date(2026, 10 - 1, 28, 9, 0, 0).getTime()
+  const day21At = seedAt + 20 * DAY_MS + 3 * 3600_000
+  t.mock.timers.enable({ apis: ['Date'], now: day21At })
+
+  const prompts = []
+  const ctx = {
+    on: () => () => {},
+    sessionController: {
+      create: async () => ({ id: 's-main' }),
+      resolveAgent: async () => ({
+        agent: { followup: (msg) => { prompts.push([msg?.content?.[0]?.text ?? '', getWakeSection()].join('\n')) } },
+      }),
+    },
+  }
+
+  try {
+    await writeConfig(normalizeConfig({
+      window: ['00:00', '23:59'],
+      wakesPerDay: 2,
+      daily: { events: 2, questions: 0, quietMin: 0 },
+      browse: { enabled: false, perDay: 0 },
+      comment: { enabled: false },
+      at: { enabled: false },
+      drive: { enabled: false },
+      rules: { offers: false },
+      interest: { enabled: false },
+      autobackup: { enabled: false },
+      cloud: { enabled: false },
+      memory: { sleepEveryDays: 7 },
+    }), root)
+
+    await appendEvent({ type: 'seed', text: '种子' }, { day: 1, stage: 1, now: seedAt, source: 'system' }, root)
+    for (const tpl of CATALOG) {
+      await appendEvent({ type: 'meta', text: `fired:${tpl.id}` }, { day: 20, stage: 4, now: day21At - 12 * 3600_000, source: 'timer' }, root)
+    }
+    await appendEvent({ type: 'utterance', text: '这两天一直在想上次聊过的那件事。' }, { day: 20, stage: 4, now: day21At - 6 * 3600_000, source: 'system' }, root)
+    const dk21 = '2026-11-17'
+    await appendEvent({ type: 'meta', text: `sched:${dk21} ${new Date(day21At - 60_000).toISOString()}` }, { day: 21, stage: 4, now: day21At - 120_000, source: 'timer' }, root)
+
+    const s = startScheduler(ctx, { root, sessionId: 's-main', log: () => {} })
+    try {
+      await s.tick()
+    } finally {
+      s.dispose()
+    }
+
+    assert.equal(prompts.length, 1, '第 21 天卡池空也必须为 sleepEveryDays 醒一次')
+    assert.ok(prompts[0].includes(SLEEP_TODAY), '唤醒处境里必须包含「（今天停下来，想一想。）」')
+    const { events } = await readEvents(root)
+    assert.ok(events.some((e) => e.type === 'meta' && e.text === `sleep:${dk21}` && e.day === 21))
+    assert.ok(!events.some((e) => e.type === 'meta' && String(e.text).startsWith('fired:sleep-think')))
+  } finally {
+    t.mock.timers.reset()
+    clearWakeSection()
+    if (oldHomes === undefined) delete process.env.DSH_FISH_HOMES
+    else process.env.DSH_FISH_HOMES = oldHomes
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  }
+})
