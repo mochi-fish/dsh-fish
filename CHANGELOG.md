@@ -2,6 +2,14 @@
 
 这一版收四件事：两件在同一条路上——**他说的那句话，从桥进来之后身份丢了**；第三件是**配额满了的时候，日志里看不出卡在哪一步**；第四件是**她在群房里写下的那句判断，场次和对象都丢了**。另加一件：**星图放大到很密的时候会卡**。
 
+- **「重开一局」点了没反应：按钮变回原样、数据没动、日志里一行都没有（2026-11-28，外部报告）。** 外部机器（Windows，1.1.2 + DSH 0.2.2-rc.5）在设置 → 数据 →「重置大肥鱼」→「确定，重开」之后，按钮变回 RESTORE，没有新的 `dsh-fish-backups/reset-*`，`logs/dsh-fish.log` 也没有记录；28 分钟后同一进程再点却成功了。`resetAll()` 本身没坏（失败时如实返回、绝不部分搬走），坏的是三件事：
+  ① **在运行中做只有启动瞬间才安全的事。** `POST /dsh-fish/reset` 同步 rename 整个数据目录，而 `awayFromBeat()` 只串心跳；每轮的 `logLine()`、`session-pressure`、每 15 秒 tmp+rename 的 `instance.json`、自动备份都还在写。Windows 上父目录 rename 只要子树上有一个打开句柄就 `EPERM`（报告里的探针：`cwd=root\home`、`cwd=root`、`fs.watch`、普通读句柄、目录句柄全部触发；只有 `cwd` 在 root 的祖先上才过得去）。
+  ② **失败不落日志**：`lib/observe-home.js` 的 `if (!r.ok) return send(res, 409, { ok:false, error:r.why })` 里没有 `flog()`，`guarded()` 只在抛异常时记。
+  ③ **回执渲染在页顶**，而重置卡是数据页最后一张卡——用户停在按钮那一段，成功和失败都看不见。
+  改法：新增 `lib/reset-pending.js`，点下去先把意图写成一份**数据目录之外**的意向书（`~/.dsh-fish-reset.json`，`DSH_FISH_RESET_PENDING` 可覆盖），`phase='armed'`；`boot()` 第一行（`logBoot`、`loadConfig`、`ensureHer`、`claimRoot` 之前）兑现——`running` → `resetAll(root)` → 用意向书里的 `home` 快照归档旧会话 → `done` + `lastRun`。搬不动就按 0/150/400ms 重试三次，仍失败退回 `armed`、`attempts++`，启动照常用老数据；`running` 脏文件转 `failed` 且不自动重试；意向书的 root 与当前 root 不同就忽略并清掉；锁文件带 pid，两个实例不会同时搬；失败日志写在数据目录之外，函数永不抛。`lib/reset.js` 的失败返回值补上 `code`，EPERM/EBUSY 文案改成「这一刻有文件正被读写，没搬成（EPERM）。等一下再点；或者关掉 DSH 再打开——下次启动时它会自己搬。」；`lib/observe-home.js` 先 `armPending` 再 `attemptPending`，失败回 **200 `{ok:false,pending:true,code…}`** 并 `flog('warn')`（不再 409 让界面只剩 HTTP 文本），GET 带 `pending` 摘要，新增 `POST /reset/cancel`。客户端把回执与「排好了，下次启动搬」写进重置卡内部，`armed`/`failed` 各有说明与「取消这次重开」「再试一次」，成功也留在卡里。
+  不做「点一下就杀掉 DSH 再拉起」：要 `taskkill` 当前进程再 `start`，失败时用户手里什么都没有，风险高于收益；这一版改成在界面上明确写「完全退出 DSH 再打开」，并保证下次启动一定先搬。
+  +17 条测试（`test/reset-pending.test.mjs` 12 条：arm 不动数据、重复 arm 不刷时间、真搬走+钥匙+done、失败留 armed 且不抛、两次失败第三次成功、`running`→`failed` 不自动重试、别的 root 不碰、坏 JSON/空/相对路径当没有、cancel 与 running 拒绝、归档用意向书快照、活锁跳过、`runPendingReset` 吞异常；`test/tenant-heartbeat.test.mjs` +2：Windows 开句柄时 200 + 意向书在数据目录外 + 日志留痕 + events 不变，放开后成功并收掉意向书，以及 arm 后 cancel；`test/client-copy.test.mjs` +3：失败回执在卡内且页顶无错误行、armed 卡文案+取消按钮真的发 POST、failed 卡显示原因与「再试一次」）。全量 **3384 条全绿**（232 个测试文件），`doc-check` 与 `pack-check` 都过。
+
 - **连线本身不再一条一次绘制：同款并成一条路径；深放大时线数也从 300 收到 200/120（2026-11-28，用户 m07381）。**
   用户实测的体感是「鲸鱼与星点不卡，连线一多就卡」，并确认他是核显（独立显卡已坏）、`chrome://gpu` 显示 `Canvas: Hardware accelerated`——也就是说不是软件渲染，而是每条边单独一次 `stroke`：「虚线要拆成一堆小段 + `lighter` 加色打断批处理」，在核显上每次调用都要单独提交。
   改法是**按笔触合批**：同颜色、同线宽、同虚线样式、同一档透明度的边并进一条 `Path2D`，整桶只 `stroke()` 一次；透明度量化成 1/12 档（肉眼分辨不出）。打架边那三层辉也各自并成一条，不必每条边画三次。选中/指到的那几条仍然单独画（它们要带光晕、要压在别的线上面）。
