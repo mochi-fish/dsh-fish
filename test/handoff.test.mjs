@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  CARRY_DAYS,
+  CARRY_TURNS,
   HANDOFF_LIMIT,
   HANDOFF_LIMIT_MAX,
   armHandoff,
@@ -143,6 +145,29 @@ test('handoffTextSync：读 home.json 里的 carry，读不到就是空串', () 
   assert.equal(handoffTextSync(root), '')
   await writeFile(join(paths(root).root, 'home.json'), JSON.stringify({ wsId: 'ws', sessionId: 's', carry: '## 上次停在这\n- 旧话' }), 'utf8')
   assert.match(handoffTextSync(root), /旧话/)
+}))
+
+// 2026-11-28（外部反馈 m00618）：没读到就不撤开关之后，开关会跨轮活着，
+// 必须有一道过期判断，否则很久之后的一次重拼还会把半月前那页翻出来念。
+test('交接页过期：满 8 轮或超 3 天就不再念，缺 rotatedAt 不算过期', () => withRoot(async (root) => {
+  const home = join(paths(root).root, 'home.json')
+  const write = async (extra) => {
+    await writeFile(home, JSON.stringify({ wsId: 'ws', sessionId: 's', carry: '## 上次停在这\n- 旧话', ...extra }), 'utf8')
+    return handoffTextSync(root)
+  }
+
+  assert.match(await write({ rotatedAt: new Date().toISOString(), turns: 0 }), /旧话/, '刚换房：照念')
+  assert.equal(await write({ rotatedAt: new Date().toISOString(), turns: CARRY_TURNS }), '', '满 8 轮：过期')
+  assert.equal(
+    await write({ rotatedAt: new Date(Date.now() - (CARRY_DAYS + 1) * 86_400_000).toISOString(), turns: 0 }),
+    '',
+    '过了三天：过期',
+  )
+  assert.match(
+    await write({}),
+    /旧话/,
+    '没有 rotatedAt（崩溃兜底补建的会话）：没有时间基准，不算过期',
+  )
 }))
 
 test('交接页上限：3 轮 400 字，轮数越多放宽，1200 封顶', () => {

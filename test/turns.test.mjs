@@ -33,7 +33,7 @@ import { appendEvent, readEvents, writeAtomic, paths } from '../lib/store.js'
 import { recentExchanges } from '../lib/talkmem.js'
 import { saveChannel } from '../lib/channels.js'
 import { setWakeSection, getWakeSection, clearWakeSection } from '../lib/identity.js'
-import { armHandoff, handoffArmed, markHandoffShown, resetHandoff } from '../lib/handoff.js'
+import { armHandoff, handoffArmed, handoffShown, markHandoffShown, resetHandoff } from '../lib/handoff.js'
 import { deriveSelf } from '../lib/derive.js'
 import { markBridgeSession } from '../lib/claim.js'
 
@@ -1951,11 +1951,20 @@ test('交接页没进她的上下文：这一轮结完不许清 carry，下一�
       assert.equal(first.turns, 1, '轮次照常结')
       let raw = JSON.parse(await readFile(join(paths(root).root, 'home.json'), 'utf8'))
       assert.equal(raw.carry, '## 上次停在这\n- 旧话', '没进上下文就不能清——这一轮她根本没看到')
-      assert.equal(handoffArmed(HER_SESSION), false, '这一轮结完照常撤开关，下一轮他开口再认领')
+      assert.equal(
+        handoffArmed(HER_SESSION),
+        true,
+        '没读到的这一轮不撤开关，下一次组装 prompt 时直接就能读到（2026-11-28，外部反馈 m00618）',
+      )
 
       // 下一轮他再开口：这一回宿主真组装了 prompt（身份段把页面读出来）。看到之后才撤。
+      //
+      // 注意顺序：armed 从上一轮起就是 true，而 onHuman 里的 armHandoff 会顺手清掉
+      // 「她看到了」那个记号（新的一轮重新算）。所以先假装她看到过、再等这个记号被
+      // 清掉——它变假就说明第二轮真认领完了，这时再标一次才算数。
+      markHandoffShown(HER_SESSION)
       ctx.emit('session/event', session(HER_SESSION), humanMsg('你看到我说的了吗'))
-      await waitFor(async () => handoffArmed(HER_SESSION))
+      await waitFor(async () => !handoffShown(HER_SESSION))
       markHandoffShown(HER_SESSION)
       ctx.emit('session/event', session(HER_SESSION), TURN_END)
       const gone = await waitFor(async () => {

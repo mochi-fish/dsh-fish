@@ -818,7 +818,11 @@ test('/say 递进换过的新房：交接页要认领（这条路进不了 turns
 
     const say = at.find((x) => x.rid.startsWith('say-'))
     assert.equal(say?.armed, true, '递进去之前就要认领：身份段是在宿主组装 prompt 那一刻求值的')
-    assert.equal(handoffArmed('s-house'), false, '这一轮结完开关要撤')
+    assert.equal(
+      handoffArmed('s-house'),
+      true,
+      '没读到就不撤开关：arm 永远晚于这一轮的装配，撤了就白认领一次（2026-11-28，外部反馈 m00618）',
+    )
 
     const saved = JSON.parse(await readFile(join(root, 'home.json'), 'utf8'))
     assert.match(String(saved.carry ?? ''), /我要去睡了/, '她这一轮没读到（没 handoffShown），carry 留着下一轮再摆')
