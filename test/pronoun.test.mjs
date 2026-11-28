@@ -9,7 +9,7 @@ import {
   fillOwner, fillOwnerDeep, pronounFor, resetPronounCache,
 } from '../lib/pronoun.js'
 import { normalizeConfig, DEFAULTS } from '../lib/settings.js'
-import { writeConfig } from '../lib/store.js'
+import { writeConfig, appendEvent } from '../lib/store.js'
 import { writeSelfDoc, selfDocPath } from '../lib/selfdoc.js'
 
 async function withRoot(fn) {
@@ -132,5 +132,25 @@ test('身份文档按代词写：默认「他」，换成「她」后不再说�
     const rest = hers.replace(/其他|其它|他人|他者|他日|他乡|他处|他方|他杀/g, '')
     assert.ok(!rest.includes('他'), '换上「她」之后还残留了「他」')
     assert.ok(hers.length > 500, '文档不是空的')
+  })
+})
+
+// 2026-11-23：认称呼时哪个「她 / TA」算指主人，跟着 owner.pronoun 走（lib/derive.js 的 nameRules）。
+// 这条钉的是从配置到身份文档那一路真的接上了（writeSelfDoc 读配置 → deriveSelf），不只是 derive 本身。
+test('身份文档里的称呼跟着代称认：默认「他」时「她以后就叫 X」不算，设成「她」才算', async () => {
+  await withRoot(async (root) => {
+    await appendEvent({ type: 'seed', text: '起点' }, { day: 1, stage: 1, source: 'system' }, root)
+    await appendEvent({ type: 'utterance', text: '以后叫你「阿辰」。' }, { day: 1, stage: 1, source: 'tool' }, root)
+    await appendEvent({ type: 'utterance', text: '她以后就叫小月。' }, { day: 1, stage: 1, source: 'tool' }, root)
+
+    await writeConfig(normalizeConfig({}), root)
+    assert.equal((await writeSelfDoc(root)).ok, true)
+    const plain = await readFile(selfDocPath(root), 'utf8')
+    assert.ok(plain.includes('你管他叫「阿辰」'), '默认「他」：那句里的「她」是别人，称呼还是阿辰')
+
+    await writeConfig(normalizeConfig({ owner: { pronoun: '她' } }), root)
+    assert.equal((await writeSelfDoc(root)).ok, true)
+    const hers = await readFile(selfDocPath(root), 'utf8')
+    assert.ok(hers.includes('你管她叫「小月」'), '设成「她」：那句说的就是她，称呼跟着改')
   })
 })
