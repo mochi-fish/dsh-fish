@@ -16,7 +16,16 @@ import type { DEFAULTS } from './settings.js'
 // 1. 事件流契约（schema.js）
 // ============================================================================
 
-export type HerEventType = 'utterance' | 'revise' | 'reunion' | 'narration' | 'refusal' | 'dream'
+export type HerEventType =
+  | 'utterance'
+  | 'revise'
+  | 'reunion'
+  | 'narration'
+  | 'refusal'
+  | 'dream'
+  | 'person_add'
+  | 'person_alias'
+  | 'person_merge'
 
 export type SystemOnlyEventType =
   | 'seed'

@@ -23,8 +23,12 @@ test('她不能用工具写系统侧类型', () => {
   for (const t of HER_TYPES) {
     // revise 要 refs；narration 从 0.5.8 起也要（或写成「我没想清楚」）；
     // dream（2026-10-30 m02837）必须指认材料，否则等于凭空编。
+    // 三种人事件（1.1.4，issue #183）要带 pid；person_add 还要名字与 nature。
     const extra = t === 'revise' ? { refs: ['ev_01J9ZK0000000000000000000'] } : {}
     if (t === 'narration' || t === 'dream') extra.refs = ['ev_01J9ZK0000000000000000000']
+    if (t === 'person_add') Object.assign(extra, { pid: 'p_1a2b3c', name: '小周', nature: 'real' })
+    if (t === 'person_alias') Object.assign(extra, { pid: 'p_1a2b3c' })
+    if (t === 'person_merge') Object.assign(extra, { pid: 'p_1a2b3c', into: 'p_4d5e6f' })
     assert.doesNotThrow(
       () => validateEvent({ type: t, text: '我有点在意那个视频里的人。', ...extra }, { day: 1, stage: 1, source: 'tool' }),
       `${t} 应当允许她写`,

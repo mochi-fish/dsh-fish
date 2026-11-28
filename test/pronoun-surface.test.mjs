@@ -38,6 +38,7 @@ import { registerSpeak } from '../lib/speak.js'
 import { registerRecall } from '../lib/recall.js'
 import { registerHerDiary } from '../lib/herdiary.js'
 import { registerHerPeople } from '../lib/herpeople.js'
+import { registerHerPerson } from '../lib/herperson.js'
 import { registerHerStance } from '../lib/stance.js'
 import { registerWatch } from '../lib/watch.js'
 import { registerSub } from '../lib/sub.js'
@@ -94,6 +95,7 @@ function registerAllTools(root) {
     registerRecall(ctx, { root })
     registerHerDiary(ctx, { root })
     registerHerPeople(ctx, { root })
+    registerHerPerson(ctx, { root })
     registerHerStance(ctx, { root })
     registerWatch(ctx, { root })
     registerSub(ctx, { root })
