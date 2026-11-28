@@ -54,7 +54,8 @@
   改法：结账时**只有她真读到了才撤开关**——`seen` 才 `disarmHandoff` + 清 `carry`；`armedBefore && !seen` 时留着开关、也不清 `carry`，下一个 `assemble`（同一轮的第 2 步或下一轮第 1 步）就会自然把页面送进去。`lib/turns.js` 与 `lib/say.js` 两条路同款。报告的另外两个方向没做：让页面随他那条 `user/message` 一起进去要宿主支持（`lib/turns.js` 里没有这个口子）；界面标「待她读到」是另一件事。
   配套的必要硬化：开关会留着了，就必须有**过期**——新增 `lib/handoff.js` 的 `carryExpired(saved, now)`（满 `CARRY_TURNS = 8` 轮、或换房超过 `CARRY_DAYS = 3` 天就算过期），`armHandoffFor` 与 `handoffTextSync` 都先过它，否则很远之后的一次组装会把旧房间的话翻出来当「上次停在这」。`CARRY_DAYS` / `CARRY_TURNS` 的常量定义搬到 `handoff.js`（`home.js` 只是再导出，避免两个模块成环）；`rotatedAt` 缺失**不算**过期——崩溃兜底补建的新会话没有轮换时间，那一路还要靠交接页。
   +1 条测试（过期三条 + 缺 `rotatedAt` 照念），两条断言反过来（没读到的那一轮结束之后开关仍是开的），`/say` 一路同步。全量 **3393 条全绿**（234 个测试文件），`doc-check` 与 `pack-check` 都过。
-- 全量 `node --test` **3393 条全绿**（234 个测试文件），`doc-check` 与 `pack-check` 都过。
+- **0.9.x 记进来的系统文本会被当成「他说过的一句」（2026-11-28，issue #181 后续）。** 那台机器最早的几条 `heard` 其实是宿主塞进上下文的 `Browser time zone for this request…`、`[model changed: …]`，而 `recentHeard` 只按时间取最近两句、不看内容——身份段那句「你记着{T}说过的一句」和说话前的引句都可能引到系统提示。事件流只追加、删不掉，所以只在**引用**时跳过：`lib/schema.js` 新增 `looksLikeSystemHeard()`（固定前缀判据，正常说话几乎不会命中），`lib/derive.js` 的 `recentHeard` 跳过这类文本；记录本身还在，`her_recall` 照旧翻得到。+2 条测试。
+- 全量 `node --test` **3395 条全绿**（234 个测试文件），`doc-check` 与 `pack-check` 都过。
 
 ## 1.1.2 — 2026-11-27
 

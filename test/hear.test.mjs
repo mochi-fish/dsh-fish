@@ -16,7 +16,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { pickHearSentence, pickHearStatus, stripBridgeEnvelope, hearTurn, rememberGroupWord, latestHeardId, HEAR_LINK_DAYS, HEAR_SNIPPET, HEAR_MIN_CHARS } from '../lib/hear.js'
+import { pickHearSentence, pickHearStatus, stripBridgeEnvelope, looksLikeSystemHeard, hearTurn, rememberGroupWord, latestHeardId, HEAR_LINK_DAYS, HEAR_SNIPPET, HEAR_MIN_CHARS } from '../lib/hear.js'
 import { hearMark, bumpTurns } from '../lib/home.js'
 import { readEvents, appendEvent } from '../lib/store.js'
 import { validateEvent, isContactEvent } from '../lib/schema.js'
@@ -125,6 +125,15 @@ test('旁听：记住的那句挂在他身上（issue #181）', async () => {
     // 不带 who 的话 people.js 的 firstAt / said 永远是空，身份段只能退回兜底。
     assert.deepEqual(heard[0].who, { id: 'owner', name: '' })
   })
+})
+
+test('旁听：0.9.x 记进来的系统文本不会被当成他说的话（issue #181 后续）', () => {
+  assert.equal(looksLikeSystemHeard('Browser time zone for this request: unavailable. Ask the user…'), true)
+  assert.equal(looksLikeSystemHeard('[model changed: assistant turns above this point were folded]'), true)
+  assert.equal(looksLikeSystemHeard('Time sampled while preparing turn 1'), true)
+  assert.equal(looksLikeSystemHeard('今天外面下雨了，你那边呢'), false)
+  assert.equal(looksLikeSystemHeard('我回来了，感觉怎么样蓝'), false)
+  assert.equal(looksLikeSystemHeard(''), false)
 })
 
 test('旁听：不到轮数不写，到了才写一条 heard', async () => {

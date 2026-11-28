@@ -345,7 +345,7 @@
 lib/        插件本体，162 个模块。入口是 index.js，她看到的那段提示词在 persona.js，
             她唯一的写入口是 capture.js，四条禁令在 rules.js，默认值只在 settings.js，
             契约类型在 types.d.ts；浏览器那半边在 client.js（分片源码在 lib/client/）
-test/       234 个测试文件，node --test 直接跑，全量 3393 条
+test/       234 个测试文件，node --test 直接跑，全量 3395 条
 media/      README 与设置页用到的图
 scripts/    安装迁移与前端拼接脚本（fix-legacy-link.mjs、build-client.mjs）
 tools/      命令行自检（check-install.mjs，零依赖，插件没加载也能跑）

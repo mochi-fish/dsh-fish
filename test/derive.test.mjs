@@ -1064,3 +1064,16 @@ test('聊天行里的认错照旧不进计数（uncommitted 只留证，m00680 �
   const m = deriveSelf(evs, { now: T0 + 2 * DAY_MS })
   assert.equal(m.facts.corrected, 0)
 })
+test('最近听到的两句不引宿主塞进来的系统文本（issue #181 后续）', () => {
+  const now = T0 + 3 * DAY_MS
+  const evs = [
+    ev('ev_h1', 'heard', 1, '今天有点累，先睡了。', { source: 'system' }),
+    ev('ev_h2', 'heard', 2, 'Browser time zone for this request: unavailable. Ask the user…', { source: 'system' }),
+    ev('ev_h3', 'heard', 3, '[model changed: assistant turns above this point were folded]', { source: 'system' }),
+  ]
+  const m = deriveSelf(evs, { now })
+  assert.deepEqual(m.recentHeard.map((h) => h.text), ['今天有点累，先睡了。'])
+  // 全是噪声时宁可空着，也不把系统提示摆成「他说过的一句」
+  const onlyNoise = deriveSelf([evs[1], evs[2]], { now })
+  assert.deepEqual(onlyNoise.recentHeard, [])
+})
