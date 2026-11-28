@@ -146,7 +146,7 @@ test('browseDigestLine：空的不带；最多六条，其余只说「等」；�
 
   const many = Array.from({ length: 7 }, (_, i) => ({ bvid: `BV${i}`, title: `${i}号` }))
   const line = browseDigestLine(many)
-  assert.match(line, /翻到了 7 条/)
+  assert.match(line, /刷到了 7 条/)
   assert.match(line, /《0号》/)
   assert.match(line, /《0号》 BV0/, '标题后面要带 BV，不然她打不开')
   assert.match(line, /《5号》/)
@@ -162,7 +162,7 @@ test('browseDigestLine：空的不带；最多六条，其余只说「等」；�
     { bvid: 'BV3', title: '三号' },
     { bvid: 'BV4', title: '四号' },
   ])
-  assert.match(four, /翻到了 4 条/)
+  assert.match(four, /刷到了 4 条/)
   assert.match(four, /BV2/)
   assert.doesNotMatch(four, /等/, '四条装得下，不该说「等」')
 })
@@ -173,7 +173,7 @@ test('browseDigestLine：空的不带；最多六条，其余只说「等」；�
 test('browseDigestLine：只说「最近」，条数一多只说大概', () => {
   const items = Array.from({ length: 24 }, (_, i) => ({ bvid: `BV${i}`, title: `第${i}条` }))
   const line = browseDigestLine(items)
-  assert.match(line, /^最近你自己又翻到了/)
+  assert.match(line, /^dsh-fish 最近在后台刷到了/)
   assert.match(line, /二十多条/)
   assert.doesNotMatch(line, /24 条/)
   assert.doesNotMatch(line, /今天/, '跨天攒的，说「今天」会撒谎')
@@ -319,14 +319,14 @@ test('digestNamesFor：积压没那么多就照实全念，额度只是天花板
   // 三条积压、额度六条 → 三条全念，不该说「等」
   const three = Array.from({ length: 3 }, (_, i) => ({ bvid: `BVaaaaaaaaa${i}`, title: `${i}号` }))
   const line = browseDigestLine(three, { max })
-  assert.match(line, /翻到了 3 条/)
+  assert.match(line, /刷到了 3 条/)
   assert.doesNotMatch(line, /等/, '三条装得下，不该说「等」')
   assert.match(line, /《2号》/)
 
   // 真到七条才轮到额度生效：念六条、说「等」
   const seven = Array.from({ length: 7 }, (_, i) => ({ bvid: `BVbbbbbbbbb${i}`, title: `${i}号` }))
   const capped = browseDigestLine(seven, { max })
-  assert.match(capped, /翻到了 7 条/)
+  assert.match(capped, /刷到了 7 条/)
   assert.match(capped, /《5号》/)
   assert.doesNotMatch(capped, /《6号》/)
   assert.match(capped, /等/)
